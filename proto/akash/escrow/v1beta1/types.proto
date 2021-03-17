@@ -73,7 +73,7 @@ message Account {
 }
 
 // Payment stores state for a payment
-message Payment {
+message FractionalPayment {
   option (gogoproto.goproto_stringer) = true;
 
   // Payment State
@@ -113,7 +113,7 @@ message Payment {
     (gogoproto.moretags) = "yaml:\"state\""
   ];
 
-  cosmos.base.v1beta1.Coin rate      = 5 [
+  cosmos.base.v1beta1.DecCoin rate   = 5 [
     (gogoproto.nullable) = false,
     (gogoproto.jsontag)  = "rate",
     (gogoproto.moretags) = "yaml:\"rate\""
@@ -129,5 +129,17 @@ message Payment {
     (gogoproto.nullable) = false,
     (gogoproto.jsontag)  = "withdrawn",
     (gogoproto.moretags) = "yaml:\"withdrawn\""
+  ];
+
+  int64 settled_to_numerator = 8 [
+    (gogoproto.jsontag)    = "settledToNumerator",
+    (gogoproto.moretags)   = "yaml:\"settledToNumerator\"",
+    (gogoproto.customname) = "SettledToNumerator"
+  ];
+
+  int64 settled_to_denominator = 9 [
+    (gogoproto.jsontag)    = "settledToDenominator",
+    (gogoproto.moretags)   = "yaml:\"settledToDenominator\"",
+    (gogoproto.customname) = "SettledToDenominator"
   ];
 }
