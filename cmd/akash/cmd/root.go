@@ -43,6 +43,7 @@ import (
 	ecmd "github.com/ovrclk/akash/events/cmd"
 	pcmd "github.com/ovrclk/akash/provider/cmd"
 	"github.com/ovrclk/akash/sdkutil"
+	csupply "github.com/ovrclk/cosmos-supply-summary/x/supply/client/cli"
 )
 
 func bindFlags(cmd *cobra.Command, v *viper.Viper) {
@@ -226,6 +227,7 @@ func queryCmd() *cobra.Command {
 		authcmd.QueryTxsByEventsCmd(),
 		authcmd.QueryTxCmd(),
 		flags.LineBreak,
+		csupply.GetQueryCmd(),
 	)
 
 	app.ModuleBasics().AddQueryCommands(cmd)
