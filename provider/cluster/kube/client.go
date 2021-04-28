@@ -617,6 +617,15 @@ func (c *client) Inventory(ctx context.Context) ([]ctypes.Node, error) {
 		// Get the amount of available CPU, then subtract that in use
 		var tmp resource.Quantity
 
+		tmp = knode.cpu.allocatable
+		cpuTotal := (&tmp).MilliValue()
+
+		tmp = knode.memory.allocatable
+		memoryTotal := (&tmp).Value()
+
+		tmp = knode.storage.allocatable
+		storageTotal := (&tmp).Value()
+
 		tmp = knode.cpu.available()
 		cpuAvailable := (&tmp).MilliValue()
 		if cpuAvailable < 0 {
@@ -656,7 +665,28 @@ func (c *client) Inventory(ctx context.Context) ([]ctypes.Node, error) {
 			},
 		}
 
-		nodes = append(nodes, cluster.NewNode(nodeName, resources))
+		allocateable := types.ResourceUnits{
+				CPU: &types.CPU{
+					Units: types.NewResourceValue(uint64(cpuTotal)),
+					Attributes: []types.Attribute{
+						{
+							Key:   "arch",
+							Value: knode.arch,
+						},
+						// todo (#788) other node attributes ?
+					},
+				},
+				Memory: &types.Memory{
+					Quantity: types.NewResourceValue(uint64(memoryTotal)),
+					// todo (#788) memory attributes ?
+				},
+				Storage: &types.Storage{
+					Quantity: types.NewResourceValue(uint64(storageTotal)),
+					// todo (#788) storage attributes like class and iops?
+				},
+			}
+
+		nodes = append(nodes, cluster.NewNode(nodeName, allocateable, resources))
 	}
 
 	return nodes, nil

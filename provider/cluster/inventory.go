@@ -41,8 +41,13 @@ var (
 		Help:        "",
 	}, []string{"quantity"})
 
-	clusterInventory = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name:        "provider_inventory_total",
+	clusterInventoryAllocateable = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "provider_inventory_allocateable_total",
+		Help:        "",
+	}, []string{"quantity"})
+
+	clusterInventoryAvailable = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "provider_inventory_available_total",
 		Help:        "",
 	}, []string{"quantity"})
 )
@@ -231,23 +236,37 @@ func (is *inventoryService) committedResources(rgroup atypes.ResourceGroup) atyp
 }
 
 func (is *inventoryService) updateInventoryMetrics(inventory []ctypes.Node){
-	clusterInventory.WithLabelValues("nodes").Set(float64(len(inventory)))
+	clusterInventoryAllocateable.WithLabelValues("nodes").Set(float64(len(inventory)))
 
 	cpuTotal := 0.0
 	memoryTotal := 0.0
 	storageTotal := 0.0
 
+	cpuAvailable := 0.0
+	memoryAvailable := 0.0
+	storageAvailable := 0.0
+
 	for _, node := range inventory {
-		available := node.Available()
-		cpuTotal += float64((&available).GetCPU().GetUnits().Value())
-		memoryTotal += float64((&available).GetMemory().Quantity.Value())
-		storageTotal += float64((&available).GetStorage().Quantity.Value())
+		tmp := node.Allocateable()
+		cpuTotal += float64((&tmp).GetCPU().GetUnits().Value())
+		memoryTotal += float64((&tmp).GetMemory().Quantity.Value())
+		storageTotal += float64((&tmp).GetStorage().Quantity.Value())
+
+		tmp = node.Available()
+		cpuAvailable += float64((&tmp).GetCPU().GetUnits().Value())
+		memoryAvailable += float64((&tmp).GetMemory().Quantity.Value())
+		storageAvailable += float64((&tmp).GetStorage().Quantity.Value())
 	}
 
-	clusterInventory.WithLabelValues("cpu").Set(cpuTotal)
-	clusterInventory.WithLabelValues("memory").Set(memoryTotal)
-	clusterInventory.WithLabelValues("storage").Set(storageTotal)
-	clusterInventory.WithLabelValues("endpoints").Set(float64(is.config.InventoryExternalPortQuantity))
+	clusterInventoryAllocateable.WithLabelValues("cpu").Set(cpuTotal)
+	clusterInventoryAllocateable.WithLabelValues("memory").Set(memoryTotal)
+	clusterInventoryAllocateable.WithLabelValues("storage").Set(storageTotal)
+	clusterInventoryAllocateable.WithLabelValues("endpoints").Set(float64(is.config.InventoryExternalPortQuantity))
+
+	clusterInventoryAvailable.WithLabelValues("cpu").Set(cpuAvailable)
+	clusterInventoryAvailable.WithLabelValues("memory").Set(memoryAvailable)
+	clusterInventoryAvailable.WithLabelValues("storage").Set(storageAvailable)
+	clusterInventoryAvailable.WithLabelValues("endpoints").Set(float64(is.availableExternalPorts))
 }
 
 func updateReservationMetrics(reservations []*reservation) {
@@ -557,7 +576,7 @@ func reservationAdjustInventory(prevInventory []ctypes.Node, externalPortsAvaila
 		}
 
 		resources = curResources
-		inventory = append(inventory, NewNode(node.ID(), available))
+		inventory = append(inventory, NewNode(node.ID(), node.Allocateable(), available))
 	}
 
 	return inventory, externalPortsAvailable, len(resources) == 0
