@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	atypes "github.com/ovrclk/akash/x/audit/types"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"regexp"
 	"time"
 
@@ -36,6 +38,48 @@ type order struct {
 	lc   lifecycle.Lifecycle
 	pass ProviderAttrSignatureService
 }
+
+var (
+	pricingDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:        "provider_bid_pricing_duration",
+		Help:        "",
+		ConstLabels: nil,
+		Buckets:     prometheus.ExponentialBuckets(150000.0, 2.0, 10.0),
+	})
+	pricingRunCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_bid_pricing",
+		Help:        "",
+		ConstLabels: nil,
+	}, []string{"result"})
+
+	bidCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_bid",
+		Help:        "The total number of bids created",
+	}, []string{"action", "result"})
+
+	reservationDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:        "provider_reservation_duration",
+		Help:        "",
+		ConstLabels: nil,
+		Buckets:     prometheus.ExponentialBuckets(150000.0, 2.0, 10.0),
+	})
+
+	reservationCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_reservation",
+		Help:        "",
+	}, []string{"action", "result"})
+
+	shouldBidCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_should_bid",
+		Help:        "",
+	}, []string{"result"})
+
+	orderCompleteCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_order_complete",
+		Help:        "",
+	}, []string{"result"})
+
+)
 
 func newOrder(svc *service, oid mtypes.OrderID, cfg Config, pass ProviderAttrSignatureService, checkForExistingBid bool) (*order, error) {
 	return newOrderInternal(svc, oid, cfg, pass, checkForExistingBid, nil)
@@ -81,6 +125,16 @@ func newOrderInternal(svc *service, oid mtypes.OrderID, cfg Config, pass Provide
 }
 
 var matchBidNotFound = regexp.MustCompile("^.+bid not found.+$")
+
+func observeRunner(f func () runner.Result, observer prometheus.Histogram) func() runner.Result{
+	return func() runner.Result {
+		startAt := time.Now()
+		result := f()
+		elapsed := time.Now().Sub(startAt)
+		observer.Observe(float64(elapsed.Microseconds()))
+		return result
+	}
+}
 
 func (o *order) run(checkForExistingBid bool) {
 	defer o.lc.ShutdownCompleted()
@@ -161,9 +215,11 @@ loop:
 
 				// check winning provider
 				if ev.ID.Provider != o.session.Provider().Address().String() {
+					orderCompleteCounter.WithLabelValues("lease-lost").Inc()
 					o.log.Info("lease lost", "lease", ev.ID)
 					break loop
 				}
+				orderCompleteCounter.WithLabelValues("lease-won").Inc()
 
 				// TODO: sanity check (price, state, etc...)
 				o.log.Info("lease won", "lease", ev.ID)
@@ -187,6 +243,7 @@ loop:
 				}
 
 				o.log.Info("order closed")
+				orderCompleteCounter.WithLabelValues("order-closed").Inc()
 				break loop
 			}
 
@@ -212,30 +269,36 @@ loop:
 			shouldBidCh = nil
 
 			if result.Error() != nil {
+				shouldBidCounter.WithLabelValues("fail").Inc()
 				o.log.Error("failure during checking should bid", "err", result.Error())
 				break loop
 			}
 
 			shouldBid := result.Value().(bool)
 			if !shouldBid {
+				shouldBidCounter.WithLabelValues("decline").Inc()
 				o.log.Debug("declined to bid")
 				break loop
 			}
 
+			shouldBidCounter.WithLabelValues("accept").Inc()
 			o.log.Info("requesting reservation")
 			// Begin reserving resources from cluster.
-			clusterch = runner.Do(func() runner.Result {
+			clusterch = runner.Do(observeRunner(func() runner.Result {
 				v := runner.NewResult(o.cluster.Reserve(o.orderID, group))
 				return v
-			})
+			}, reservationDuration))
 
 		case result := <-clusterch:
 			clusterch = nil
 
 			if result.Error() != nil {
+				reservationCounter.WithLabelValues("open", "fail")
 				o.log.Error("reserving resources", "err", result.Error())
 				break loop
 			}
+
+			reservationCounter.WithLabelValues("open", "sucess")
 
 			o.log.Info("Reservation fulfilled")
 
@@ -255,17 +318,17 @@ loop:
 				break
 			}
 
-			pricech = runner.Do(func() runner.Result {
+			pricech = runner.Do(observeRunner(func() runner.Result {
 				// Calculate price & bid
 				return runner.NewResult(o.cfg.PricingStrategy.CalculatePrice(ctx, &group.GroupSpec))
-
-			})
+			}, pricingDuration))
 		case result := <-pricech:
 			pricech = nil
 			if result.Error() != nil {
 				o.log.Error("error calculating price", "err", result.Error())
 				break loop
 			}
+
 			price := result.Value().(sdk.Coin)
 			maxPrice := group.GroupSpec.Price()
 
@@ -287,9 +350,11 @@ loop:
 			o.log.Info("bid complete")
 
 			if result.Error() != nil {
+				bidCounter.WithLabelValues("open", "fail").Inc()
 				o.log.Error("submitting fulfillment", "err", result.Error())
 				break loop
 			}
+			bidCounter.WithLabelValues("open", "success").Inc()
 
 			// Fulfillment placed.
 			o.bidPlaced = true
@@ -300,6 +365,7 @@ loop:
 
 		case <-bidTimeout:
 			o.log.Info("bid timeout, closing bid")
+			orderCompleteCounter.WithLabelValues("bid-timeout").Inc()
 			break loop
 		}
 	}
@@ -315,6 +381,9 @@ loop:
 			o.log.Debug("unreserving reservation")
 			if err := o.cluster.Unreserve(reservation.OrderID()); err != nil {
 				o.log.Error("error unreserving reservation", "err", err)
+				reservationCounter.WithLabelValues("close", "fail")
+			} else {
+				reservationCounter.WithLabelValues("close", "success")
 			}
 		}
 
@@ -325,6 +394,9 @@ loop:
 			})
 			if err != nil {
 				o.log.Error("closing bid", "err", err)
+				bidCounter.WithLabelValues("close", "fail").Inc()
+			} else {
+				bidCounter.WithLabelValues("close", "success").Inc()
 			}
 		}
 	}

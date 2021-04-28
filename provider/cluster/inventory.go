@@ -3,6 +3,8 @@ package cluster
 import (
 	"context"
 	"errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,6 +27,24 @@ var (
 	errNotFound = errors.New("not found")
 	// ErrInsufficientCapacity is the new error when capacity is insufficient
 	ErrInsufficientCapacity = errors.New("insufficient capacity")
+)
+
+var (
+	inventoryRequestsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_inventory_requests",
+		Help:        "",
+		ConstLabels: nil,
+	}, []string{"action", "result"})
+
+	inventoryReservations = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "provider_inventory_reservations_total",
+		Help:        "",
+	}, []string{"quantity"})
+
+	clusterInventory = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "provider_inventory_total",
+		Help:        "",
+	}, []string{"quantity"})
 )
 
 type inventoryService struct {
@@ -210,6 +230,53 @@ func (is *inventoryService) committedResources(rgroup atypes.ResourceGroup) atyp
 	return result
 }
 
+func (is *inventoryService) updateInventoryMetrics(inventory []ctypes.Node){
+	clusterInventory.WithLabelValues("nodes").Set(float64(len(inventory)))
+
+	cpuTotal := 0.0
+	memoryTotal := 0.0
+	storageTotal := 0.0
+
+	for _, node := range inventory {
+		available := node.Available()
+		cpuTotal += float64((&available).GetCPU().GetUnits().Value())
+		memoryTotal += float64((&available).GetMemory().Quantity.Value())
+		storageTotal += float64((&available).GetStorage().Quantity.Value())
+	}
+
+	clusterInventory.WithLabelValues("cpu").Set(cpuTotal)
+	clusterInventory.WithLabelValues("memory").Set(memoryTotal)
+	clusterInventory.WithLabelValues("storage").Set(storageTotal)
+	clusterInventory.WithLabelValues("endpoints").Set(float64(is.config.InventoryExternalPortQuantity))
+}
+
+func updateReservationMetrics(reservations []*reservation) {
+	inventoryReservations.WithLabelValues("quantity").Set(float64(len(reservations)))
+
+	cpuTotal := 0.0
+	memoryTotal := 0.0
+	storageTotal := 0.0
+	endpointsTotal := 0.0
+	allocated := 0.0
+	for _, reservation := range reservations {
+		if reservation.allocated {
+			allocated++
+		}
+		for _, resource := range reservation.Resources().GetResources() {
+			cpuTotal += float64(resource.Resources.GetCPU().GetUnits().Value() * uint64(resource.Count))
+			memoryTotal += float64(resource.Resources.GetMemory().Quantity.Value() * uint64(resource.Count))
+			storageTotal += float64(resource.Resources.GetStorage().Quantity.Value() * uint64(resource.Count))
+			endpointsTotal += float64(len(resource.Resources.GetEndpoints()))
+		}
+	}
+
+	inventoryReservations.WithLabelValues("allocated").Set(allocated)
+	inventoryReservations.WithLabelValues("cpu").Set(cpuTotal)
+	inventoryReservations.WithLabelValues("memory").Set(memoryTotal)
+	inventoryReservations.WithLabelValues("storage").Set(storageTotal)
+	inventoryReservations.WithLabelValues("endpoints").Set(endpointsTotal)
+}
+
 func (is *inventoryService) run(reservations []*reservation) {
 	defer is.lc.ShutdownCompleted()
 	defer is.sub.Close()
@@ -280,11 +347,12 @@ loop:
 			if reservationAllocateable(inventory, is.availableExternalPorts, reservations, reservation) {
 				reservations = append(reservations, reservation)
 				req.ch <- inventoryResponse{value: reservation}
+				inventoryRequestsCounter.WithLabelValues("reserve", "create").Inc()
 				break
 			}
 
 			is.log.Info("insufficient capacity for reservation", "order", req.order)
-
+			inventoryRequestsCounter.WithLabelValues("reserve", "insufficient-capacity").Inc()
 			req.ch <- inventoryResponse{err: ErrInsufficientCapacity}
 
 		case req := <-is.lookupch:
@@ -298,9 +366,11 @@ loop:
 					continue
 				}
 				req.ch <- inventoryResponse{value: res}
+				inventoryRequestsCounter.WithLabelValues("lookup", "found").Inc()
 				continue loop
 			}
 
+			inventoryRequestsCounter.WithLabelValues("lookup", "not-found").Inc()
 			req.ch <- inventoryResponse{err: errNotFound}
 
 		case req := <-is.unreservech:
@@ -320,13 +390,16 @@ loop:
 
 				req.ch <- inventoryResponse{value: res}
 				is.log.Info("unreserve capacity complete", "order", req.order)
+				inventoryRequestsCounter.WithLabelValues("unreserve", "destroyed").Inc()
 				continue loop
 			}
 
+			inventoryRequestsCounter.WithLabelValues("unreserve", "not-found").Inc()
 			req.ch <- inventoryResponse{err: errNotFound}
 
 		case responseCh := <-is.statusch:
 			responseCh <- is.getStatus(inventory, reservations)
+			inventoryRequestsCounter.WithLabelValues("status", "success").Inc()
 
 		case <-t.C:
 			// run cluster inventory check
@@ -355,6 +428,7 @@ loop:
 			}
 
 			inventory = res.Value().([]ctypes.Node)
+			is.updateInventoryMetrics(inventory)
 			if fetchCount%is.config.InventoryResourceDebugFrequency == 0 {
 				is.log.Debug("inventory fetched", "nodes", len(inventory))
 				for _, node := range inventory {
@@ -368,6 +442,7 @@ loop:
 			}
 			fetchCount++
 		}
+		updateReservationMetrics(reservations)
 	}
 	cancel()
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	atypes "github.com/ovrclk/akash/x/audit/types"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"time"
 
 	lifecycle "github.com/boz/go-lifecycle"
@@ -14,6 +16,13 @@ import (
 	"github.com/ovrclk/akash/pubsub"
 	mquery "github.com/ovrclk/akash/x/market/query"
 	mtypes "github.com/ovrclk/akash/x/market/types"
+)
+
+var (
+	ordersCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:        "provider_order_handler",
+		Help:        "The total number of orders created",
+	}, []string{"action"})
 )
 
 // ErrNotRunning declares new error with message "not running"
@@ -173,10 +182,11 @@ loop:
 				// create an order object for managing the bid process and order lifecycle
 				order, err := newOrder(s, ev.ID, s.cfg, s.pass, false)
 				if err != nil {
-
 					s.session.Log().Error("handling order", "order", key, "err", err)
 					break
 				}
+
+				ordersCounter.WithLabelValues("start").Inc()
 
 				s.orders[key] = order
 			}
@@ -188,6 +198,7 @@ loop:
 			// child done
 			key := mquery.OrderPath(order.orderID)
 			delete(s.orders, key)
+			ordersCounter.WithLabelValues("stop").Inc()
 		}
 	}
 

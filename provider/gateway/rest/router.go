@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	"net/http"
 	"sync"
@@ -72,6 +74,14 @@ func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client) *mux.R
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	router.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			// Opt into OpenMetrics to support exemplars.
+			EnableOpenMetrics: true,
+		},
+	))
 
 	// GET /status
 	// provider status endpoint does not require authentication

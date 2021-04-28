@@ -8,6 +8,8 @@ import (
 	"github.com/ovrclk/akash/pubsub"
 	"github.com/ovrclk/akash/util/runner"
 	mtypes "github.com/ovrclk/akash/x/market/types"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/tendermint/tendermint/libs/log"
 	"time"
 )
@@ -19,6 +21,12 @@ type deploymentWithdrawal struct {
 	log     log.Logger
 	lc      lifecycle.Lifecycle
 }
+
+var (
+	leaseWithdrawalCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name:        "provider_lease_withdrawal",
+	}, []string{"result"})
+)
 
 func newDeploymentWithdrawal(dm *deploymentManager) *deploymentWithdrawal {
 	m := &deploymentWithdrawal{
@@ -40,7 +48,14 @@ func (dw *deploymentWithdrawal) doWithdrawal(ctx context.Context) error {
 		LeaseID: dw.lease,
 	}
 
-	return dw.session.Client().Tx().Broadcast(ctx, msg)
+	result := dw.session.Client().Tx().Broadcast(ctx, msg)
+
+	label := "success"
+	if result  != nil {
+		label = "fail"
+	}
+	leaseWithdrawalCounter.WithLabelValues(label).Inc()
+	return result
 }
 
 func (dw *deploymentWithdrawal) run() {
