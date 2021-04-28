@@ -537,7 +537,16 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 
 	if metricsRouter != nil {
 		group.Go(func() error {
-			return http.ListenAndServe(metricsListener, metricsRouter)
+			srv := http.Server{Addr: metricsListener, Handler: metricsRouter}
+			go func() {
+				<-ctx.Done()
+				srv.Close()
+			}()
+			err := srv.ListenAndServe()
+			if err == http.ErrServerClosed {
+				return nil
+			}
+			return err
 		})
 	}
 
