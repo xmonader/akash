@@ -17,7 +17,8 @@ provider-run:
 		--cluster-node-port-quantity 100 \
 		--cluster-public-hostname "$(GATEWAY_HOSTNAME)" \
 		--bid-price-strategy "randomRange" \
-		--deployment-runtime-class "none"
+		--deployment-runtime-class "none" \
+                --metrics-listener "0.0.0.0:8080"
 
 .PHONY: provider-lease-status
 provider-lease-status:

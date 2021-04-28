@@ -77,6 +77,7 @@ const (
 	FlagDeploymentRuntimeClass           = "deployment-runtime-class"
 	FlagBidTimeout                       = "bid-timeout"
 	FlagManifestTimeout                  = "manifest-timeout"
+	FlagMetricsListener = "metrics-listener"
 )
 
 var (
@@ -252,6 +253,11 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
+	cmd.Flags().String(FlagMetricsListener, "", "ip and port to start the metrics listener on")
+	if err := viper.BindPFlag(FlagMetricsListener, cmd.Flags().Lookup(FlagMetricsListener)); err != nil {
+		return nil
+	}
+
 	return cmd
 }
 
@@ -343,6 +349,12 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	deploymentRuntimeClass := viper.GetString(FlagDeploymentRuntimeClass)
 	bidTimeout := viper.GetDuration(FlagBidTimeout)
 	manifestTimeout := viper.GetDuration(FlagManifestTimeout)
+	metricsListener := viper.GetString(FlagMetricsListener)
+
+	var metricsRouter http.Handler
+	if len(metricsListener) != 0 {
+		metricsRouter = makeMetricsRouter()
+	}
 
 	if err != nil {
 		return err
@@ -522,6 +534,12 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		<-ctx.Done()
 		return gateway.Close()
 	})
+
+	if metricsRouter != nil {
+		group.Go(func() error {
+			return http.ListenAndServe(metricsListener, metricsRouter)
+		})
+	}
 
 	err = group.Wait()
 	broadcaster.Close()
