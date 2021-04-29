@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/pkg/errors"
+	"github.com/tendermint/tendermint/libs/log"
 
 	ctypes "github.com/ovrclk/akash/x/cert/types"
 )
@@ -27,6 +28,12 @@ func NewServerTLSConfig(ctx context.Context, certs []tls.Certificate, cquery cty
 				}
 
 				cert, err := x509.ParseCertificate(certificates[0])
+				defer func() {
+					if err != nil {
+						ctx.Value("log").(log.Logger).Error("VerifyPeerCertificate failed", "err", err.Error())
+					}
+				}()
+
 				if err != nil {
 					return errors.Wrap(err, "tls: failed to parse certificate")
 				}
