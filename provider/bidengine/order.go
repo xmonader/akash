@@ -320,8 +320,10 @@ loop:
 
 			pricech = runner.Do(observeRunner(func() runner.Result {
 				// Calculate price & bid
-				return runner.NewResult(o.cfg.PricingStrategy.CalculatePrice(ctx, &group.GroupSpec))
+
+				return runner.NewResult(o.cfg.PricingStrategy.CalculatePrice(ctx, group.GroupID.Owner, &group.GroupSpec))
 			}, pricingDuration))
+
 		case result := <-pricech:
 			pricech = nil
 			if result.Error() != nil {
