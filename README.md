@@ -21,20 +21,19 @@ The `master` branch contains new features and is under active development; the `
 * **stable** releases will have even minor numbers ( `v0.8.0` ) and be cut from the `mainnet/main` branch.
 * **unstable** releases will have odd minor numbers ( `v0.9.0` ) and be cut from the `master` branch.
 
-## Akash Suite
+## Akash 
 
-Akash Suite is the reference implementation of the [Akash Protocol](https://akash.network/l/whitepaper). Akash is an actively-developed prototype currently focused on the distributed marketplace functionality.
+Akash is the reference implementation of the [Akash Protocol](https://akash.network/l/whitepaper). Akash is an actively-developed project currently focused on the distributed marketplace functionality.
 
-The Suite is composed of one binary, `akash`, which contains a ([tendermint](https://github.com/tendermint/tendermint)-powered) blockchain node that
-implements the decentralized exchange as well as client functionality to access the exchange and network data in general.
+The Akash open source project is composed of one binary, `akash`, which contains a ([tendermint](https://github.com/tendermint/tendermint)-powered) blockchain node that implements the decentralized exchange as well as client functionality to access the exchange and network data in general.
 
 ## Get Started with Akash
 
-The easiest way to get started with Akash is by trying Testnet. Sign up [here](https://akash.network/signup) to get started. 
+The easiest way to get started with Akash is by following the [Quick Start Guide](https://docs.akash.network/guides/deploy) to get started. 
 
 ## Join the Community
 
-- [Join Developer Chat](https://discord.gg/6Rtn8aJkU4)
+- [Join Developer Chat](https://discord.akash.network)
 - [Become a validator](https://akash.network/token)
 
 ## Official blog and documentation
