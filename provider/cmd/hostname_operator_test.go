@@ -119,25 +119,16 @@ func makeHostnameOperatorScaffold(t *testing.T) *hostnameOperatorScaffold {
 	}
 	l := testutil.Logger(t)
 
-	op := &hostnameOperator{
-		hostnames:      make(map[string]managedHostname),
-		ignoreList:     make(map[mtypes.LeaseID]ignoreListEntry),
-		client:         client,
-		log:            l,
-		ignoreListData: newPreparedResult(),
-		hostnamesData:  newPreparedResult(),
-		cfg: hostnameOperatorConfig{
-			pruneInterval:        time.Hour,
-			ignoreListEntryLimit: 10,
-			ignoreListAgeLimit:   time.Hour,
-			webRefreshInterval:   time.Second,
-			retryDelay:           time.Second,
-			eventFailureLimit:    3,
-		},
-	}
+	op := newHostnameOperator(l, client, hostnameOperatorConfig{
+		pruneInterval:        time.Hour,
+		ignoreListEntryLimit: 10,
+		ignoreListAgeLimit:   time.Hour,
+		webRefreshInterval:   time.Second,
+		retryDelay:           time.Second,
+		eventFailureLimit:    3,
+	})
 
 	scaffold.op = op
-
 	return scaffold
 }
 
@@ -194,10 +185,9 @@ func TestHostnameOperatorApplyDelete(t *testing.T) {
 	_, exists := s.op.hostnames[hostname]
 	require.False(t, exists) // Removed from dataset
 
-	require.True(t, s.op.hostnamesData.needsPrepare)
-	require.NoError(t, s.op.prepare())
-	require.False(t, s.op.hostnamesData.needsPrepare)
-
+	require.True(t, s.op.server.results["/managed-hostnames"].data.needsPrepare)
+	require.NoError(t, s.op.server.prepareAll())
+	require.False(t, s.op.server.results["/managed-hostnames"].data.needsPrepare)
 }
 
 func TestHostnameOperatorApplyDeleteFails(t *testing.T) {
@@ -255,9 +245,9 @@ func TestHostnameOperatorApplyAddNoManifestGroup(t *testing.T) {
 
 	ignoreEntry := s.op.ignoreList[ev.leaseID]
 	require.Equal(t, ignoreEntry.failureCount, uint(1))
-	require.True(t, s.op.ignoreListData.needsPrepare)
-	require.NoError(t, s.op.prepare())
-	require.False(t, s.op.ignoreListData.needsPrepare)
+	require.True(t, s.op.server.results["/ignore-list"].data.needsPrepare)
+	require.NoError(t, s.op.server.prepareAll())
+	require.False(t, s.op.server.results["/ignore-list"].data.needsPrepare)
 }
 
 func TestHostnameOperatorApplyAddWithError(t *testing.T) {
@@ -287,7 +277,7 @@ func TestHostnameOperatorApplyAddWithError(t *testing.T) {
 
 	_, exists = s.op.ignoreList[ev.leaseID] // not ignored
 	require.False(t, exists)
-	require.False(t, s.op.ignoreListData.needsPrepare)
+	require.False(t, s.op.server.results["/ignore-list"].data.needsPrepare)
 }
 
 func TestHostnameOperatorIgnoresAfterLimit(t *testing.T) {
@@ -376,8 +366,8 @@ func TestHostnameOperatorApplyAdd(t *testing.T) {
 	ignoreEntry := s.op.ignoreList[ev.leaseID]
 	require.Equal(t, ignoreEntry.failureCount, uint(0))
 
-	require.False(t, s.op.ignoreListData.needsPrepare)
-	require.True(t, s.op.hostnamesData.needsPrepare)
+	require.False(t, s.op.server.results["/ignore-list"].data.needsPrepare)
+	require.True(t, s.op.server.results["/managed-hostnames"].data.needsPrepare)
 }
 
 func TestHostnameOperatorApplyAddMultipleServices(t *testing.T) {

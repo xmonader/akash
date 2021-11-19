@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"golang.org/x/sync/errgroup"
+	"net/http"
 
 	"errors"
 	"fmt"
@@ -186,8 +188,13 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 	return err
 }
 
+func (op *ipOperator) webRouter() http.Handler {
+	return nil
+}
+
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(FlagK8sManifestNS)
+	listenAddr := viper.GetString(FlagListenAddress)
 	logger := openLogger()
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
@@ -203,9 +210,31 @@ func doIPOperator(cmd *cobra.Command) error {
 		log:    logger,
 	}
 
+	router := op.webRouter()
+	group, ctx := errgroup.WithContext(cmd.Context())
 
+	group.Go(func() error {
+		srv := http.Server{Addr: listenAddr, Handler: router}
+		go func() {
+			<-ctx.Done()
+			_ = srv.Close()
+		}()
+		err := srv.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	})
 
-	return op.run(cmd.Context())
+	group.Go(func() error {
+		return op.run(ctx)
+	})
+
+	err = group.Wait()
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 func IPOperatorCmd() *cobra.Command {
@@ -217,11 +246,7 @@ func IPOperatorCmd() *cobra.Command {
 			return doIPOperator(cmd)
 		},
 	}
-
-	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
-	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
-		return nil
-	}
+	addOperatorFlags(cmd)
 
 	return cmd
 }

@@ -49,10 +49,11 @@ type hostnameOperator struct {
 
 	log log.Logger
 
-	ignoreListData preparedResult
-	hostnamesData  preparedResult
-
 	cfg hostnameOperatorConfig
+	server *operatorHttp
+
+	flagHostnamesData prepareFlagFn
+	flagIgnoreListData prepareFlagFn
 }
 
 func (op *hostnameOperator) run(parentCtx context.Context) error {
@@ -82,7 +83,7 @@ func (op *hostnameOperator) run(parentCtx context.Context) error {
 	}
 }
 
-func servePreparedResult(rw http.ResponseWriter, pd preparedResult) {
+func servePreparedResult(rw http.ResponseWriter, pd *preparedResult) {
 	rw.Header().Set("Cache-Control", "no-cache, max-age=0")
 	value := pd.get()
 	if len(value.data) == 0 {
@@ -95,18 +96,60 @@ func servePreparedResult(rw http.ResponseWriter, pd preparedResult) {
 	_, _ = rw.Write(value.data)
 }
 
+type prepareFlagFn func ()
+type prepareFn func (pd *preparedResult) error
+type preparedEntry struct{
+	data *preparedResult
+	prepare prepareFn
+}
+
+type operatorHttp struct {
+	router *mux.Router
+	results map[string]preparedEntry
+}
+
+func newOperatorHttp() *operatorHttp {
+	return &operatorHttp{
+		router: mux.NewRouter(),
+		results: make(map[string]preparedEntry),
+	}
+}
+
+func (opHttp *operatorHttp) addPreparedEndpoint(path string, prepare prepareFn) prepareFlagFn {
+	_ ,exists := opHttp.results[path]
+	if exists {
+		panic("prepared result exists for path: " + path)
+	}
+
+	entry := preparedEntry{
+		data: newPreparedResult(),
+		prepare: prepare,
+	}
+	opHttp.results[path] = entry
+
+	opHttp.router.HandleFunc(path, func(rw http.ResponseWriter, req *http.Request){
+		servePreparedResult(rw, entry.data)
+	}).Methods("GET")
+
+	return entry.data.flag
+}
+
+func (opHttp *operatorHttp) prepareAll() error {
+	for _, entry := range opHttp.results {
+		if !entry.data.needsPrepare {
+			continue
+		}
+		err := entry.prepare(entry.data)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (op *hostnameOperator) webRouter() http.Handler {
-	router := mux.NewRouter()
-
-	router.HandleFunc("/ignore-list", func(rw http.ResponseWriter, req *http.Request) {
-		servePreparedResult(rw, op.ignoreListData)
-	}).Methods("GET")
-
-	router.HandleFunc("/managed-hostnames", func(rw http.ResponseWriter, req *http.Request) {
-		servePreparedResult(rw, op.hostnamesData)
-	}).Methods("GET")
-
-	return router
+	return op.server.router
 }
 
 func (op *hostnameOperator) monitorUntilError(parentCtx context.Context) error {
@@ -143,7 +186,8 @@ func (op *hostnameOperator) monitorUntilError(parentCtx context.Context) error {
 			"service", entry.presentServiceName,
 			"port", entry.presentExternalPort)
 	}
-	op.hostnamesData.flag()
+	op.flagHostnamesData()
+
 
 	events, err := op.client.ObserveHostnameState(ctx)
 	if err != nil {
@@ -178,7 +222,7 @@ loop:
 		case <-pruneTicker.C:
 			op.prune()
 		case <-prepareTicker.C:
-			if err := op.prepare(); err != nil {
+			if err := op.server.prepareAll(); err != nil {
 				op.log.Error("preparing web data failed", "err", err)
 			}
 
@@ -190,76 +234,73 @@ loop:
 	return exitError
 }
 
-func (op *hostnameOperator) prepare() error {
-	// Check each dataset and rebuild it if needed
-	if op.ignoreListData.needsPrepare {
-		op.log.Debug("preparing ignore-list")
-		buf := &bytes.Buffer{}
-		data := make(map[string]interface{})
+func (op *hostnameOperator) prepareIgnoreListData(pd *preparedResult) error {
+	op.log.Debug("preparing ignore-list")
+	buf := &bytes.Buffer{}
+	data := make(map[string]interface{})
 
-		for leaseID, ignored := range op.ignoreList {
-			preparedEntry := struct {
-				Hostnames     []string `json:"hostnames"`
-				LastError     string   `json:"last-error"`
-				LastErrorType string   `json:"last-error-type"`
-				FailedAt      string   `json:"failed-at"`
-				FailureCount  uint     `json:"failure-count"`
-				Namespace     string   `json:"namespace"`
-			}{
-				LastError:     ignored.lastError.Error(),
-				LastErrorType: fmt.Sprintf("%T", ignored.lastError),
-				FailedAt:      ignored.failedAt.UTC().String(),
-				FailureCount:  ignored.failureCount,
-				Namespace:     clusterutil.LeaseIDToNamespace(leaseID),
-			}
-
-			for hostname := range ignored.hostnames {
-				preparedEntry.Hostnames = append(preparedEntry.Hostnames, hostname)
-			}
-
-			data[leaseID.String()] = preparedEntry
+	for leaseID, ignored := range op.ignoreList {
+		preparedEntry := struct {
+			Hostnames     []string `json:"hostnames"`
+			LastError     string   `json:"last-error"`
+			LastErrorType string   `json:"last-error-type"`
+			FailedAt      string   `json:"failed-at"`
+			FailureCount  uint     `json:"failure-count"`
+			Namespace     string   `json:"namespace"`
+		}{
+			LastError:     ignored.lastError.Error(),
+			LastErrorType: fmt.Sprintf("%T", ignored.lastError),
+			FailedAt:      ignored.failedAt.UTC().String(),
+			FailureCount:  ignored.failureCount,
+			Namespace:     clusterutil.LeaseIDToNamespace(leaseID),
 		}
 
-		enc := json.NewEncoder(buf)
-		err := enc.Encode(data)
-		if err != nil {
-			return err
+		for hostname := range ignored.hostnames {
+			preparedEntry.Hostnames = append(preparedEntry.Hostnames, hostname)
 		}
 
-		op.ignoreListData.set(buf.Bytes())
+		data[leaseID.String()] = preparedEntry
 	}
 
-	if op.hostnamesData.needsPrepare {
-		op.log.Debug("preparing managed-hostnames")
-		buf := &bytes.Buffer{}
-		data := make(map[string]interface{})
-
-		for hostname, entry := range op.hostnames {
-			preparedEntry := struct {
-				LeaseID      mtypes.LeaseID
-				Namespace    string
-				ExternalPort uint32
-				ServiceName  string
-				LastUpdate   string
-			}{
-				LeaseID:      entry.presentLease,
-				Namespace:    clusterutil.LeaseIDToNamespace(entry.presentLease),
-				ExternalPort: entry.presentExternalPort,
-				ServiceName:  entry.presentServiceName,
-				LastUpdate:   entry.lastChangeAt.String(),
-			}
-			data[hostname] = preparedEntry
-		}
-
-		enc := json.NewEncoder(buf)
-		err := enc.Encode(data)
-		if err != nil {
-			return err
-		}
-
-		op.hostnamesData.set(buf.Bytes())
+	enc := json.NewEncoder(buf)
+	err := enc.Encode(data)
+	if err != nil {
+		return err
 	}
 
+	pd.set(buf.Bytes())
+	return nil
+}
+
+func (op *hostnameOperator) prepareHostnamesData(pd *preparedResult) error {
+	op.log.Debug("preparing managed-hostnames")
+	buf := &bytes.Buffer{}
+	data := make(map[string]interface{})
+
+	for hostname, entry := range op.hostnames {
+		preparedEntry := struct {
+			LeaseID      mtypes.LeaseID
+			Namespace    string
+			ExternalPort uint32
+			ServiceName  string
+			LastUpdate   string
+		}{
+			LeaseID:      entry.presentLease,
+			Namespace:    clusterutil.LeaseIDToNamespace(entry.presentLease),
+			ExternalPort: entry.presentExternalPort,
+			ServiceName:  entry.presentServiceName,
+			LastUpdate:   entry.lastChangeAt.String(),
+		}
+		data[hostname] = preparedEntry
+	}
+
+	enc := json.NewEncoder(buf)
+	err := enc.Encode(data)
+	if err != nil {
+		return err
+	}
+
+	pd.set(buf.Bytes())
 	return nil
 }
 
@@ -292,7 +333,7 @@ func (op *hostnameOperator) prune() {
 			op.log.Info("removing ignore list entry", "lease", leaseID.String())
 			delete(op.ignoreList, leaseID)
 		}
-		op.ignoreListData.flag()
+		op.flagIgnoreListData()
 	}
 }
 
@@ -341,7 +382,7 @@ func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, fa
 	entry.hostnames[ev.GetHostname()] = struct{}{}
 
 	op.ignoreList[ev.GetLeaseID()] = entry
-	op.ignoreListData.flag()
+	op.flagIgnoreListData()
 }
 
 func (op *hostnameOperator) isEventIgnored(ev ctypes.HostnameResourceEvent) bool {
@@ -375,7 +416,7 @@ func (op *hostnameOperator) applyDeleteEvent(ctx context.Context, ev ctypes.Host
 
 	if err == nil {
 		delete(op.hostnames, ev.GetHostname())
-		op.hostnamesData.flag()
+		op.flagHostnamesData()
 	}
 
 	return err
@@ -521,16 +562,33 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 		entry.lastEvent = ev
 		entry.lastChangeAt = time.Now()
 		op.hostnames[ev.GetHostname()] = entry
-		op.hostnamesData.flag()
+		op.flagHostnamesData()
 	}
 
 	return err
 }
 
+func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig) (*hostnameOperator) {
+
+	op := &hostnameOperator{
+		hostnames:  make(map[string]managedHostname),
+		client:     client,
+		log:        logger,
+		ignoreList: make(map[mtypes.LeaseID]ignoreListEntry),
+		cfg:        config,
+		server: newOperatorHttp(),
+	}
+
+	op.flagIgnoreListData = op.server.addPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
+	op.flagHostnamesData = op.server.addPreparedEndpoint("/managed-hostnames",op.prepareHostnamesData)
+
+	return op
+}
+
 func doHostnameOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(FlagK8sManifestNS)
-	logger := openLogger()
 
+	listenAddr := viper.GetString(FlagListenAddress)
 	config := hostnameOperatorConfig{
 		listenAddress:        viper.GetString(FlagListenAddress),
 		pruneInterval:        viper.GetDuration(FlagPruneInterval),
@@ -541,6 +599,8 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		eventFailureLimit:    viper.GetUint(FlagEventFailureLimit),
 	}
 
+	logger := openLogger()
+
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
 	client, err := clusterClient.NewClient(logger, ns, "")
@@ -548,23 +608,13 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op := hostnameOperator{
-		hostnames:  make(map[string]managedHostname),
-		client:     client,
-		log:        logger,
-		ignoreList: make(map[mtypes.LeaseID]ignoreListEntry),
-		cfg:        config,
-
-		ignoreListData: newPreparedResult(),
-		hostnamesData:  newPreparedResult(),
-	}
+	op := newHostnameOperator(logger, client, config)
 
 	router := op.webRouter()
-
 	group, ctx := errgroup.WithContext(cmd.Context())
 
 	group.Go(func() error {
-		srv := http.Server{Addr: "0.0.0.0:8085", Handler: router}
+		srv := http.Server{Addr: listenAddr, Handler: router}
 		go func() {
 			<-ctx.Done()
 			_ = srv.Close()
@@ -587,6 +637,48 @@ func doHostnameOperator(cmd *cobra.Command) error {
 	return nil
 }
 
+func addOperatorFlags(cmd *cobra.Command) {
+	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
+	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().String(FlagListenAddress, "0.0.0.0:8085", "listen address for web server")
+	if err := viper.BindPFlag(FlagListenAddress, cmd.Flags().Lookup(FlagListenAddress)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().Duration(FlagPruneInterval, 10*time.Minute, "data pruning interval")
+	if err := viper.BindPFlag(FlagPruneInterval, cmd.Flags().Lookup(FlagPruneInterval)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().Uint(FlagIgnoreListEntryLimit, 131072, "ignore list size limit")
+	if err := viper.BindPFlag(FlagIgnoreListEntryLimit, cmd.Flags().Lookup(FlagIgnoreListEntryLimit)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().Duration(FlagIgnoreListAgeLimit, time.Hour*726, "ignore list entry age limit")
+	if err := viper.BindPFlag(FlagIgnoreListAgeLimit, cmd.Flags().Lookup(FlagIgnoreListAgeLimit)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().Duration(FlagWebRefreshInterval, 5*time.Second, "web data refresh interval")
+	if err := viper.BindPFlag(FlagWebRefreshInterval, cmd.Flags().Lookup(FlagWebRefreshInterval)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().Duration(FlagRetryDelay, 3*time.Second, "retry delay")
+	if err := viper.BindPFlag(FlagRetryDelay, cmd.Flags().Lookup(FlagRetryDelay)); err != nil {
+		panic(err)
+	}
+
+	cmd.Flags().Uint(FlagEventFailureLimit, 3, "event failure limit before it is ignored")
+	if err := viper.BindPFlag(FlagEventFailureLimit, cmd.Flags().Lookup(FlagEventFailureLimit)); err != nil {
+		panic(err)
+	}
+}
+
 func HostnameOperatorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "hostname-operator",
@@ -596,46 +688,7 @@ func HostnameOperatorCmd() *cobra.Command {
 			return doHostnameOperator(cmd)
 		},
 	}
-
-	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
-	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().String(FlagListenAddress, "0.0.0.0:8085", "listen address for web server")
-	if err := viper.BindPFlag(FlagListenAddress, cmd.Flags().Lookup(FlagListenAddress)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().Duration(FlagPruneInterval, 10*time.Minute, "data pruning interval")
-	if err := viper.BindPFlag(FlagPruneInterval, cmd.Flags().Lookup(FlagPruneInterval)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().Uint(FlagIgnoreListEntryLimit, 131072, "ignore list size limit")
-	if err := viper.BindPFlag(FlagIgnoreListEntryLimit, cmd.Flags().Lookup(FlagIgnoreListEntryLimit)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().Duration(FlagIgnoreListAgeLimit, time.Hour*726, "ignore list entry age limit")
-	if err := viper.BindPFlag(FlagIgnoreListAgeLimit, cmd.Flags().Lookup(FlagIgnoreListAgeLimit)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().Duration(FlagWebRefreshInterval, 5*time.Second, "web data refresh interval")
-	if err := viper.BindPFlag(FlagWebRefreshInterval, cmd.Flags().Lookup(FlagWebRefreshInterval)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().Duration(FlagRetryDelay, 3*time.Second, "retry delay")
-	if err := viper.BindPFlag(FlagRetryDelay, cmd.Flags().Lookup(FlagRetryDelay)); err != nil {
-		return nil
-	}
-
-	cmd.Flags().Uint(FlagEventFailureLimit, 3, "event failure limit before it is ignored")
-	if err := viper.BindPFlag(FlagEventFailureLimit, cmd.Flags().Lookup(FlagEventFailureLimit)); err != nil {
-		return nil
-	}
+	addOperatorFlags(cmd)
 
 	return cmd
 }

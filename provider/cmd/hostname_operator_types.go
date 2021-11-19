@@ -23,12 +23,11 @@ type preparedResultData struct {
 
 type preparedResult struct {
 	needsPrepare bool
-	data         *atomic.Value
+	data         atomic.Value
 }
 
-func newPreparedResult() preparedResult {
-	result := preparedResult{
-		data:         new(atomic.Value),
+func newPreparedResult() *preparedResult {
+	result := &preparedResult{
 		needsPrepare: true,
 	}
 	result.set([]byte{})
