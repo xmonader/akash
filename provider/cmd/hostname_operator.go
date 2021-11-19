@@ -427,7 +427,7 @@ func locateServiceFromManifest(ctx context.Context, client cluster.Client, lease
 			can be rewritten to watch for CRD events on the manifest as well, then avoid running this code
 			until the manifest exists.
 		*/
-		return crd.ManifestServiceExpose{}, fmt.Errorf("%w: no manifest found for %v", errExpectedResourceNotFound, leaseID)
+		return crd.ManifestServiceExpose{}, fmt.Errorf("%w: manifest for %v", errExpectedResourceNotFound, leaseID)
 	}
 
 	var selectedService crd.ManifestService
@@ -439,7 +439,7 @@ func locateServiceFromManifest(ctx context.Context, client cluster.Client, lease
 	}
 
 	if selectedService.Count == 0 {
-		return crd.ManifestServiceExpose{}, fmt.Errorf("%w: no service found for %v - %v", errExpectedResourceNotFound, leaseID, serviceName)
+		return crd.ManifestServiceExpose{}, fmt.Errorf("%w: service for %v - %v", errExpectedResourceNotFound, leaseID, serviceName)
 	}
 
 	var selectedExpose crd.ManifestServiceExpose
@@ -458,7 +458,7 @@ func locateServiceFromManifest(ctx context.Context, client cluster.Client, lease
 	}
 
 	if selectedExpose.Port == 0 {
-		return crd.ManifestServiceExpose{}, fmt.Errorf("%w: no service expose found for %v - %v - %v", errExpectedResourceNotFound, leaseID, serviceName, externalPort)
+		return crd.ManifestServiceExpose{}, fmt.Errorf("%w: service expose for %v - %v - %v", errExpectedResourceNotFound, leaseID, serviceName, externalPort)
 	}
 
 	return selectedExpose, nil
