@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gorilla/mux"
 	"github.com/ovrclk/akash/manifest"
 	crd "github.com/ovrclk/akash/pkg/apis/akash.network/v1"
 	"github.com/ovrclk/akash/provider/cluster"
@@ -96,57 +95,7 @@ func servePreparedResult(rw http.ResponseWriter, pd *preparedResult) {
 	_, _ = rw.Write(value.data)
 }
 
-type prepareFlagFn func ()
-type prepareFn func (pd *preparedResult) error
-type preparedEntry struct{
-	data *preparedResult
-	prepare prepareFn
-}
 
-type operatorHttp struct {
-	router *mux.Router
-	results map[string]preparedEntry
-}
-
-func newOperatorHttp() *operatorHttp {
-	return &operatorHttp{
-		router: mux.NewRouter(),
-		results: make(map[string]preparedEntry),
-	}
-}
-
-func (opHttp *operatorHttp) addPreparedEndpoint(path string, prepare prepareFn) prepareFlagFn {
-	_ ,exists := opHttp.results[path]
-	if exists {
-		panic("prepared result exists for path: " + path)
-	}
-
-	entry := preparedEntry{
-		data: newPreparedResult(),
-		prepare: prepare,
-	}
-	opHttp.results[path] = entry
-
-	opHttp.router.HandleFunc(path, func(rw http.ResponseWriter, req *http.Request){
-		servePreparedResult(rw, entry.data)
-	}).Methods("GET")
-
-	return entry.data.flag
-}
-
-func (opHttp *operatorHttp) prepareAll() error {
-	for _, entry := range opHttp.results {
-		if !entry.data.needsPrepare {
-			continue
-		}
-		err := entry.prepare(entry.data)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
 
 func (op *hostnameOperator) webRouter() http.Handler {
 	return op.server.router
@@ -187,7 +136,6 @@ func (op *hostnameOperator) monitorUntilError(parentCtx context.Context) error {
 			"port", entry.presentExternalPort)
 	}
 	op.flagHostnamesData()
-
 
 	events, err := op.client.ObserveHostnameState(ctx)
 	if err != nil {

@@ -30,6 +30,8 @@ type ipOperator struct {
 	client cluster.Client
 
 	log log.Logger
+
+	server *operatorHttp
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -170,7 +172,6 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		}
 	} else {
 		op.log.Debug("Swapping ip passthrough to new deployment")
-
 		err = op.client.PurgeIPPassthrough(ctx, leaseID, directive)
 
 		if err == nil {
@@ -189,7 +190,7 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 }
 
 func (op *ipOperator) webRouter() http.Handler {
-	return nil
+	return op.server.router
 }
 
 func doIPOperator(cmd *cobra.Command) error {
@@ -208,6 +209,7 @@ func doIPOperator(cmd *cobra.Command) error {
 		state:  make(map[string]managedIp),
 		client: client,
 		log:    logger,
+		server: newOperatorHttp(),
 	}
 
 	router := op.webRouter()
