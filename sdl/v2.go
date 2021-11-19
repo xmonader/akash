@@ -32,6 +32,7 @@ const (
 	defaultSendTimeout    = uint32(60000)
 	upperLimitSendTimeout = defaultSendTimeout
 	defaultNextTries      = uint32(3)
+	endpointKindIP = "ip"
 )
 
 var (
@@ -39,6 +40,7 @@ var (
 	errCannotSpecifyOffAndOtherCases = errors.New("if 'off' is specified, no other cases may be specified")
 	errUnknownNextCase               = errors.New("next case is unknown")
 	errHTTPOptionNotAllowed          = errors.New("http option not allowed")
+	errSDLInvalid = errors.New("SDL invalid")
 )
 
 type v2 struct {
@@ -46,12 +48,18 @@ type v2 struct {
 	Services    map[string]v2Service    `yaml:"services,omitempty"`
 	Profiles    v2profiles              `yaml:"profiles,omitempty"`
 	Deployments map[string]v2Deployment `yaml:"deployment"`
+	Endpoints map[string]v2Endpoint `yaml:"endpoints"`
+}
+
+type v2Endpoint struct {
+	Kind string `yaml:"kind"`
 }
 
 type v2ExposeTo struct {
 	Service     string        `yaml:"service,omitempty"`
 	Global      bool          `yaml:"global,omitempty"`
 	HTTPOptions v2HTTPOptions `yaml:"http_options"`
+	IP string `yaml:"ip"`
 }
 
 type v2HTTPOptions struct {
@@ -182,6 +190,8 @@ type v2profiles struct {
 func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 	groups := make(map[string]*dtypes.GroupSpec)
 
+	ipEndpointNames := make(map[string]uint)
+	endpointSeqNumber := uint(0)
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 
@@ -220,30 +230,44 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 			endpoints := make([]types.Endpoint, 0)
 			for _, expose := range sdl.Services[svcName].Expose {
 				for _, to := range expose.To {
-					if to.Global {
-						proto, err := manifest.ParseServiceProtocol(expose.Proto)
-						if err != nil {
-							return nil, err
-						}
-						// This value is created just so it can be passed to the utility function
-						v := manifest.ServiceExpose{
-							Port:         expose.Port,
-							ExternalPort: expose.As,
-							Proto:        proto,
-							Service:      to.Service,
-							Global:       to.Global,
-							Hosts:        expose.Accept.Items,
-						}
+					if !to.Global {
+						continue
+					}
 
-						kind := types.Endpoint_RANDOM_PORT
-						if providerUtil.ShouldBeIngress(v) {
-							kind = types.Endpoint_SHARED_HTTP
-						}
+					proto, err := manifest.ParseServiceProtocol(expose.Proto)
+					if err != nil {
+						return nil, err
+					}
+					// This value is created just so it can be passed to the utility function
+					v := manifest.ServiceExpose{
+						Port:         expose.Port,
+						ExternalPort: expose.As,
+						Proto:        proto,
+						Service:      to.Service,
+						Global:       to.Global,
+						Hosts:        expose.Accept.Items,
+						IP: 		to.IP,
+					}
+					kind := types.Endpoint_RANDOM_PORT
+					if providerUtil.ShouldBeIngress(v) {
+						kind = types.Endpoint_SHARED_HTTP
+					}
 
-						endpoints = append(endpoints, types.Endpoint{Kind: kind})
+					endpoints = append(endpoints, types.Endpoint{Kind: kind})
+					// Check to see if an IP endpoint is also specified
+					if len(v.IP) != 0 {
+						seqNo, exists := ipEndpointNames[v.IP]
+						if !exists {
+							endpointSeqNumber++
+							seqNo = endpointSeqNumber
+							ipEndpointNames[v.IP] = seqNo
+						}
+						_ = seqNo // TODO assign into the endpoint type
+						endpoints = append(endpoints, types.Endpoint{Kind: types.Endpoint_LEASED_IP})
 					}
 				}
 			}
+
 
 			resources.Resources.Endpoints = endpoints
 			group.Resources = append(group.Resources, resources)
@@ -318,6 +342,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 							Global:       to.Global,
 							Hosts:        expose.Accept.Items,
 							HTTPOptions:  httpOptions,
+							IP: to.IP,
 						})
 					}
 				} else { // Nothing explicitly set, fill in without any information from "expose.To"
@@ -329,6 +354,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						Global:       false,
 						Hosts:        expose.Accept.Items,
 						HTTPOptions:  httpOptions,
+						IP: "",
 					})
 				}
 			}
@@ -393,6 +419,14 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 }
 
 func (sdl *v2) validate() error {
+	for endpointName, endpoint := range sdl.Endpoints {
+		if len(endpoint.Kind) == 0 {
+			return fmt.Errorf("%w: endpoint named %q has no kind", errSDLInvalid, endpointName)
+		}
+	}
+
+	// TODO - check for endpoints declared but not used
+	portsUsed := make(map[string]string)
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 
@@ -416,6 +450,34 @@ func (sdl *v2) validate() error {
 			svc, ok := sdl.Services[svcName]
 			if !ok {
 				return errors.Errorf("sdl: %v.%v: no service profile named %v", svcName, placementName, svcName)
+			}
+
+			for _, serviceExpose := range svc.Expose {
+				for _, to := range serviceExpose.To {
+					// Check to see if an IP endpoint is also specified
+					if len(to.IP) != 0 {
+						if !to.Global {
+							return fmt.Errorf("%w: error on %q if an IP is declared the directive must be declared as global", errSDLInvalid, svcName)
+						}
+						endpoint, endpointExists := sdl.Endpoints[to.IP]
+						if !endpointExists {
+							return fmt.Errorf("%w: error on service %q no endpoint named %q exists", errSDLInvalid, svcName, to.IP)
+						}
+
+						if endpoint.Kind != endpointKindIP {
+							return fmt.Errorf("%w: error on service %q endpoint %q has type %q, should be %q", errSDLInvalid, svcName, to.IP, endpoint.Kind, endpointKindIP)
+						}
+
+						// Endpoint exists. Now check for port collisions across a single endpoint, port, & protocol
+						portKey := fmt.Sprintf("%s-%d-%s", to.IP, serviceExpose.Port, serviceExpose.Proto)
+						otherServiceName, inUse := portsUsed[portKey]
+						if inUse {
+							return fmt.Errorf("%w: IP endpoint %q port: %d protocol: %s specified by service %q already in use by %q", errSDLInvalid, to.IP, serviceExpose.Port, serviceExpose.Proto, svcName, otherServiceName)
+						}
+						portsUsed[portKey] = svcName
+					}
+
+				}
 			}
 
 			// validate storage's attributes and parameters

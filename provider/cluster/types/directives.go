@@ -1,6 +1,9 @@
 package cluster
 
-import mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
+import (
+	"github.com/ovrclk/akash/manifest"
+	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
+)
 
 type ConnectHostnameToDeploymentDirective struct {
 	Hostname    string
@@ -13,4 +16,13 @@ type ConnectHostnameToDeploymentDirective struct {
 	MaxBodySize uint32
 	NextTries   uint32
 	NextCases   []string //
+}
+
+type ClusterIPPassthroughDirective struct {
+	LeaseID     mtypes.LeaseID
+	ServiceName string
+	Port uint32
+	ExternalPort uint32
+	SharingKey string
+	Protocol manifest.ServiceProtocol
 }

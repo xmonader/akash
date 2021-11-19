@@ -272,7 +272,7 @@ loop:
 		case ev := <-s.sub.Events():
 			switch ev := ev.(type) {
 			case event.ManifestReceived:
-				s.log.Info("manifest received")
+				s.log.Info("manifest received", "lease", ev.LeaseID)
 
 				mgroup := ev.ManifestGroup()
 				if mgroup == nil {

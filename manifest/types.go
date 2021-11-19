@@ -1,7 +1,14 @@
 package manifest
 
 import (
+	"errors"
+	"fmt"
 	types "github.com/ovrclk/akash/types/v1beta2"
+	"strings"
+)
+
+var (
+	errManifestParsing = errors.New("error parsing manifest")
 )
 
 // Manifest store list of groups
@@ -16,6 +23,17 @@ const (
 
 func (sp ServiceProtocol) ToString() string {
 	return string(sp)
+}
+
+func ServiceProtocolFromString(input string) (ServiceProtocol, error) {
+	switch(strings.ToLower(input)){
+	case "tcp":
+		return TCP, nil
+	case "udp":
+		return UDP, nil
+	default:
+		return ServiceProtocol(""), fmt.Errorf("%w: not a known protocol %q", errManifestParsing, input)
+	}
 }
 
 // GetGroups returns a manifest with groups list
@@ -88,6 +106,7 @@ type ServiceExpose struct {
 	Global       bool
 	Hosts        []string
 	HTTPOptions  ServiceExposeHTTPOptions
+	IP	string
 }
 
 type ServiceExposeHTTPOptions struct {

@@ -1,6 +1,7 @@
 package sdl
 
 import (
+	types "github.com/ovrclk/akash/types/v1beta2"
 	"testing"
 
 	"github.com/ovrclk/akash/validation"
@@ -201,6 +202,42 @@ func Test_v1_Parse_simple(t *testing.T) {
 			},
 		},
 	}, mani.GetGroups()[0])
+}
+
+func Test_v1_Parse_simpleWithIP(t *testing.T) {
+	sdl, err := ReadFile("./_testdata/simple_with_ip.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, sdl)
+
+	groups, err := sdl.DeploymentGroups()
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	group := groups[0]
+	resources := group.GetResources()
+	require.Len(t, resources, 1)
+	resource := resources[0]
+	var ipEndpoint types.Endpoint
+	for _, endpoint := range resource.Resources.Endpoints {
+		if endpoint.Kind == types.Endpoint_LEASED_IP {
+			ipEndpoint = endpoint
+			break
+		}
+	}
+	require.Equal(t, ipEndpoint.Kind, types.Endpoint_LEASED_IP)
+
+	mani, err := sdl.Manifest()
+	require.NoError(t, err)
+	var exposeIP manifest.ServiceExpose
+	for _, expose := range mani[0].Services[0].Expose {
+		if len(expose.IP) != 0 {
+			exposeIP = expose
+			break
+		}
+	}
+	require.NotEmpty(t, exposeIP.IP)
+	require.Equal(t, exposeIP.Proto, manifest.UDP)
+	require.Equal(t, exposeIP.Port, uint16(12345))
+	require.True(t, exposeIP.Global)
 }
 
 func Test_v1_Parse_ProfileNameNotServiceName(t *testing.T) {

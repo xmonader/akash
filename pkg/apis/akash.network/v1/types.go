@@ -44,7 +44,7 @@ type ManifestSpec struct {
 
 // Deployment returns the cluster.Deployment that the saved manifest represents.
 func (m Manifest) Deployment() (ctypes.Deployment, error) {
-	lid, err := m.Spec.LeaseID.toAkash()
+	lid, err := m.Spec.LeaseID.ToAkash()
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func NewManifest(ns string, lid mtypes.LeaseID, mgroup *manifest.Group) (*Manife
 		},
 		Spec: ManifestSpec{
 			Group:   group,
-			LeaseID: leaseIDFromAkash(lid),
+			LeaseID: LeaseIDFromAkash(lid),
 		},
 	}, nil
 }
@@ -102,7 +102,7 @@ type LeaseID struct {
 }
 
 // ToAkash returns LeaseID from LeaseID details
-func (id LeaseID) toAkash() (mtypes.LeaseID, error) {
+func (id LeaseID) ToAkash() (mtypes.LeaseID, error) {
 	owner, err := sdk.AccAddressFromBech32(id.Owner)
 	if err != nil {
 		return mtypes.LeaseID{}, err
@@ -128,7 +128,7 @@ func (id LeaseID) toAkash() (mtypes.LeaseID, error) {
 }
 
 // LeaseIDFromAkash returns LeaseID instance from akash
-func leaseIDFromAkash(id mtypes.LeaseID) LeaseID {
+func LeaseIDFromAkash(id mtypes.LeaseID) LeaseID {
 	return LeaseID{
 		Owner:    id.Owner,
 		DSeq:     strconv.FormatUint(id.DSeq, 10),
@@ -445,4 +445,36 @@ type ProviderHostList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
 	Items           []ProviderHost `json:"items"`
+}
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type ProviderLeasedIP struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata"`
+
+	Spec   ProviderLeasedIPSpec   `json:"spec,omitempty"`
+	Status ProviderLeasedIPStatus `json:"status,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+type ProviderLeasedIPList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata"`
+	Items           []ProviderLeasedIP `json:"items"`
+}
+
+type ProviderLeasedIPStatus struct {
+	State   string `json:"state,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type ProviderLeasedIPSpec struct {
+	LeaseID LeaseID       `json:"lease_id"`
+	ServiceName  string `json:"service_name"`
+	Port uint32 `json:"port"`
+	ExternalPort uint32 `json:"external_port"`
+	SharingKey   string `json:"sharing_key"`
+	Protocol string `json:"protocol"`
 }

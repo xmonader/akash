@@ -65,6 +65,29 @@ func (_m *ReadClient) GetHostnameDeploymentConnections(ctx context.Context) ([]c
 	return r0, r1
 }
 
+// GetIPPassthroughs provides a mock function with given fields: ctx
+func (_m *ReadClient) GetIPPassthroughs(ctx context.Context) ([]cluster.IPPassthrough, error) {
+	ret := _m.Called(ctx)
+
+	var r0 []cluster.IPPassthrough
+	if rf, ok := ret.Get(0).(func(context.Context) []cluster.IPPassthrough); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]cluster.IPPassthrough)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetManifestGroup provides a mock function with given fields: _a0, _a1
 func (_m *ReadClient) GetManifestGroup(_a0 context.Context, _a1 v1beta2.LeaseID) (bool, v1.ManifestGroup, error) {
 	ret := _m.Called(_a0, _a1)
@@ -172,6 +195,29 @@ func (_m *ReadClient) ObserveHostnameState(ctx context.Context) (<-chan cluster.
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(<-chan cluster.HostnameResourceEvent)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ObserveIPState provides a mock function with given fields: ctx
+func (_m *ReadClient) ObserveIPState(ctx context.Context) (<-chan cluster.IPResourceEvent, error) {
+	ret := _m.Called(ctx)
+
+	var r0 <-chan cluster.IPResourceEvent
+	if rf, ok := ret.Get(0).(func(context.Context) <-chan cluster.IPResourceEvent); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(<-chan cluster.IPResourceEvent)
 		}
 	}
 
