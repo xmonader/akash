@@ -152,9 +152,10 @@ func TestHostnameOperatorPrune(t *testing.T) {
 		require.Error(t, err)
 	}
 
-	require.Len(t, s.op.ignoreList, testIterationCount)
+
+	require.Equal(t, s.op.leasesIgnored.size(), testIterationCount)
 	s.op.prune()
-	require.Less(t, len(s.op.ignoreList), testIterationCount)
+	require.Less(t, s.op.leasesIgnored.size(), testIterationCount)
 
 }
 
@@ -243,8 +244,7 @@ func TestHostnameOperatorApplyAddNoManifestGroup(t *testing.T) {
 	_, exists := s.op.hostnames[hostname]
 	require.False(t, exists) // not added
 
-	ignoreEntry := s.op.ignoreList[ev.leaseID]
-	require.Equal(t, ignoreEntry.failureCount, uint(1))
+	require.Equal(t, s.op.leasesIgnored.getFailureCount(ev.leaseID), uint(1))
 	require.True(t, s.op.server.results["/ignore-list"].data.needsPrepare)
 	require.NoError(t, s.op.server.prepareAll())
 	require.False(t, s.op.server.results["/ignore-list"].data.needsPrepare)
@@ -275,8 +275,7 @@ func TestHostnameOperatorApplyAddWithError(t *testing.T) {
 	_, exists := s.op.hostnames[hostname]
 	require.False(t, exists) // not added
 
-	_, exists = s.op.ignoreList[ev.leaseID] // not ignored
-	require.False(t, exists)
+	require.False(t, s.op.leasesIgnored.isFlagged(ev.leaseID))
 	require.False(t, s.op.server.results["/ignore-list"].data.needsPrepare)
 }
 
@@ -363,8 +362,7 @@ func TestHostnameOperatorApplyAdd(t *testing.T) {
 	require.True(t, exists) // not added
 	require.Equal(t, managedValue.presentLease, leaseID)
 
-	ignoreEntry := s.op.ignoreList[ev.leaseID]
-	require.Equal(t, ignoreEntry.failureCount, uint(0))
+	require.Equal(t, s.op.leasesIgnored.getFailureCount(ev.leaseID) , uint(0))
 
 	require.False(t, s.op.server.results["/ignore-list"].data.needsPrepare)
 	require.True(t, s.op.server.results["/managed-hostnames"].data.needsPrepare)

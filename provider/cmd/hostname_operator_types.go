@@ -50,12 +50,118 @@ func (pr *preparedResult) get() preparedResultData {
 	return (pr.data.Load()).(preparedResultData)
 }
 
+// TODO - move me to common file
 type ignoreListEntry struct {
 	failureCount uint
 	failedAt     time.Time
 	lastError    error
-	hostnames    map[string]struct{}
+
+	extra    map[string]struct{}
 }
+
+type ignoreListConfig struct {
+	failureLimit uint
+	entryLimit uint
+	ageLimit time.Duration
+}
+
+type ignoreList struct {
+	entries map[mtypes.LeaseID]ignoreListEntry
+	cfg ignoreListConfig
+}
+
+func newIgnoreList(config ignoreListConfig) *ignoreList{
+	return &ignoreList{
+		entries: make(map[mtypes.LeaseID]ignoreListEntry),
+		cfg:     config,
+	}
+}
+
+func (il *ignoreList) size() int {
+	return len(il.entries)
+}
+
+func (il *ignoreList) each(f func(k mtypes.LeaseID, failure error, failedAt time.Time, count uint, extra ...string) error ) error {
+	for k, v := range il.entries {
+		var extras []string
+		for extra, _ := range v.extra {
+			extras = append(extras, extra)
+		}
+		err := f(k, v.lastError, v.failedAt, v.failureCount, extras...)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (il *ignoreList) addError(k mtypes.LeaseID, failure error, extra ...string) {
+	// Increment the error counter
+	entry := il.entries[k]
+	entry.failureCount++
+	entry.failedAt = time.Now()
+	entry.lastError = failure
+
+	for _, v := range extra {
+		if entry.extra == nil {
+			entry.extra = make(map[string]struct{})
+		}
+		entry.extra[v] = struct{}{}
+	}
+
+	// Store updated copy back into map
+	il.entries[k] = entry
+}
+
+func (il *ignoreList) getFailureCount(k mtypes.LeaseID) uint {
+	return il.entries[k].failureCount
+}
+
+func (il *ignoreList) isFlagged(k mtypes.LeaseID) bool {
+	entry, ok := il.entries[k]
+	if !ok {
+		return false
+	}
+
+	return entry.failureCount >= il.cfg.entryLimit
+}
+
+func (il *ignoreList) prune() bool {
+	deleted := false
+	// do not let the ignore list grow unbounded, it would eventually
+	// consume 100% of available memory otherwise
+	if len(il.entries) > int(il.cfg.entryLimit) {
+		var toDelete []mtypes.LeaseID
+
+		for leaseID, entry := range il.entries {
+			if time.Since(entry.failedAt) > il.cfg.ageLimit {
+				toDelete = append(toDelete, leaseID)
+			}
+		}
+
+		// if enough entries have not been selected for deletion
+		// then just remove half of the entries
+		if len(il.entries)-len(toDelete) > int(il.cfg.entryLimit) {
+	//		op.log.Info("removing half of ignore list entries")
+			i := 0
+			for leaseID := range il.entries {
+				if (i % 2) == 0 {
+					toDelete = append(toDelete, leaseID)
+				}
+				i++
+			}
+		}
+
+		for _, leaseID := range toDelete {
+			//op.log.Info("removing ignore list entry", "lease", leaseID.String())
+			delete(il.entries, leaseID)
+			deleted = true
+		}
+	}
+
+	return deleted
+}
+
 
 type hostnameOperatorConfig struct {
 	listenAddress        string

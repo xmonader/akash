@@ -193,6 +193,22 @@ func (op *ipOperator) webRouter() http.Handler {
 	return op.server.router
 }
 
+
+func newIpOperator(logger log.Logger, client cluster.Client) (*ipOperator) {
+	retval := &ipOperator{
+		state:  make(map[string]managedIp),
+		client: client,
+		log:    logger,
+		server: newOperatorHttp(),
+	}
+
+	retval.server.router.HandleFunc("/heartbeat", func(rw http.ResponseWriter, req *http.Request){
+		rw.WriteHeader(http.StatusOK)
+	})
+
+	return retval
+}
+
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(FlagK8sManifestNS)
 	listenAddr := viper.GetString(FlagListenAddress)
@@ -205,12 +221,7 @@ func doIPOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op := &ipOperator{
-		state:  make(map[string]managedIp),
-		client: client,
-		log:    logger,
-		server: newOperatorHttp(),
-	}
+	op := newIpOperator(logger, client)
 
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())

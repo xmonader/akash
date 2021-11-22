@@ -18,10 +18,18 @@ type operatorHttp struct {
 }
 
 func newOperatorHttp() *operatorHttp {
-	return &operatorHttp{
+	retval := &operatorHttp{
 		router: mux.NewRouter(),
 		results: make(map[string]preparedEntry),
 	}
+
+	// TODO - install standardized version & version-extended endpoints
+	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request){
+		rw.WriteHeader(http.StatusOK)
+		// TODO - write the version back
+	}).Methods("GET")
+
+	return retval
 }
 
 func (opHttp *operatorHttp) addPreparedEndpoint(path string, prepare prepareFn) prepareFlagFn {

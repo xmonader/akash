@@ -40,9 +40,13 @@ var (
 	errExpectedResourceNotFound = fmt.Errorf("%w: resource not found", errObservationStopped)
 )
 
+
+
 type hostnameOperator struct {
 	hostnames  map[string]managedHostname
-	ignoreList map[mtypes.LeaseID]ignoreListEntry
+	//ignoreList map[mtypes.LeaseID]ignoreListEntry
+
+	leasesIgnored *ignoreList
 
 	client cluster.Client
 
@@ -187,7 +191,7 @@ func (op *hostnameOperator) prepareIgnoreListData(pd *preparedResult) error {
 	buf := &bytes.Buffer{}
 	data := make(map[string]interface{})
 
-	for leaseID, ignored := range op.ignoreList {
+	err := op.leasesIgnored.each(func(leaseID mtypes.LeaseID, lastError error, failedAt time.Time, count uint, extra ...string) error {
 		preparedEntry := struct {
 			Hostnames     []string `json:"hostnames"`
 			LastError     string   `json:"last-error"`
@@ -196,22 +200,27 @@ func (op *hostnameOperator) prepareIgnoreListData(pd *preparedResult) error {
 			FailureCount  uint     `json:"failure-count"`
 			Namespace     string   `json:"namespace"`
 		}{
-			LastError:     ignored.lastError.Error(),
-			LastErrorType: fmt.Sprintf("%T", ignored.lastError),
-			FailedAt:      ignored.failedAt.UTC().String(),
-			FailureCount:  ignored.failureCount,
+			LastError:     lastError.Error(),
+			LastErrorType: fmt.Sprintf("%T", lastError),
+			FailedAt:      failedAt.UTC().String(),
+			FailureCount:  count,
 			Namespace:     clusterutil.LeaseIDToNamespace(leaseID),
 		}
 
-		for hostname := range ignored.hostnames {
+		for _, hostname := range extra {
 			preparedEntry.Hostnames = append(preparedEntry.Hostnames, hostname)
 		}
 
 		data[leaseID.String()] = preparedEntry
+		return nil
+	})
+
+	if err != nil {
+		return err
 	}
 
 	enc := json.NewEncoder(buf)
-	err := enc.Encode(data)
+	err = enc.Encode(data)
 	if err != nil {
 		return err
 	}
@@ -253,36 +262,10 @@ func (op *hostnameOperator) prepareHostnamesData(pd *preparedResult) error {
 }
 
 func (op *hostnameOperator) prune() {
-	// do not let the ignore list grow unbounded, it would eventually
-	// consume 100% of available memory otherwise
-	if len(op.ignoreList) > int(op.cfg.ignoreListEntryLimit) {
-		var toDelete []mtypes.LeaseID
-
-		for leaseID, entry := range op.ignoreList {
-			if time.Since(entry.failedAt) > op.cfg.ignoreListAgeLimit {
-				toDelete = append(toDelete, leaseID)
-			}
-		}
-
-		// if enough entries have not been selected for deletion
-		// then just remove half of the entries
-		if len(op.ignoreList)-len(toDelete) > int(op.cfg.ignoreListEntryLimit) {
-			op.log.Info("removing half of ignore list entries")
-			i := 0
-			for leaseID := range op.ignoreList {
-				if (i % 2) == 0 {
-					toDelete = append(toDelete, leaseID)
-				}
-				i++
-			}
-		}
-
-		for _, leaseID := range toDelete {
-			op.log.Info("removing ignore list entry", "lease", leaseID.String())
-			delete(op.ignoreList, leaseID)
-		}
+	if op.leasesIgnored.prune() {
 		op.flagIgnoreListData()
 	}
+
 }
 
 func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, failure error) {
@@ -318,24 +301,12 @@ func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, fa
 
 	op.log.Info("recording error for", "lease", ev.GetLeaseID().String(), "err", failure)
 
-	// Increment the error counter
-	entry := op.ignoreList[ev.GetLeaseID()]
-	entry.failureCount++
-	entry.failedAt = time.Now()
-	entry.lastError = failure
-	if entry.hostnames == nil {
-		entry.hostnames = make(map[string]struct{})
-	}
-
-	entry.hostnames[ev.GetHostname()] = struct{}{}
-
-	op.ignoreList[ev.GetLeaseID()] = entry
+	op.leasesIgnored.addError(ev.GetLeaseID(), failure, ev.GetHostname())
 	op.flagIgnoreListData()
 }
 
 func (op *hostnameOperator) isEventIgnored(ev ctypes.HostnameResourceEvent) bool {
-	entry := op.ignoreList[ev.GetLeaseID()]
-	return entry.failureCount >= op.cfg.eventFailureLimit
+	return op.leasesIgnored.isFlagged(ev.GetLeaseID())
 }
 
 func (op *hostnameOperator) applyEvent(ctx context.Context, ev ctypes.HostnameResourceEvent) error {
@@ -522,9 +493,13 @@ func newHostnameOperator(logger log.Logger, client cluster.Client, config hostna
 		hostnames:  make(map[string]managedHostname),
 		client:     client,
 		log:        logger,
-		ignoreList: make(map[mtypes.LeaseID]ignoreListEntry),
 		cfg:        config,
 		server: newOperatorHttp(),
+		leasesIgnored: newIgnoreList(ignoreListConfig{ // TODO - should be a param
+			failureLimit: config.eventFailureLimit,
+			entryLimit:   config.ignoreListEntryLimit,
+			ageLimit:     config.ignoreListAgeLimit,
+		}),
 	}
 
 	op.flagIgnoreListData = op.server.addPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
