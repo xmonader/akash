@@ -188,45 +188,7 @@ loop:
 
 func (op *hostnameOperator) prepareIgnoreListData(pd *preparedResult) error {
 	op.log.Debug("preparing ignore-list")
-	buf := &bytes.Buffer{}
-	data := make(map[string]interface{})
-
-	err := op.leasesIgnored.each(func(leaseID mtypes.LeaseID, lastError error, failedAt time.Time, count uint, extra ...string) error {
-		preparedEntry := struct {
-			Hostnames     []string `json:"hostnames"`
-			LastError     string   `json:"last-error"`
-			LastErrorType string   `json:"last-error-type"`
-			FailedAt      string   `json:"failed-at"`
-			FailureCount  uint     `json:"failure-count"`
-			Namespace     string   `json:"namespace"`
-		}{
-			LastError:     lastError.Error(),
-			LastErrorType: fmt.Sprintf("%T", lastError),
-			FailedAt:      failedAt.UTC().String(),
-			FailureCount:  count,
-			Namespace:     clusterutil.LeaseIDToNamespace(leaseID),
-		}
-
-		for _, hostname := range extra {
-			preparedEntry.Hostnames = append(preparedEntry.Hostnames, hostname)
-		}
-
-		data[leaseID.String()] = preparedEntry
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	enc := json.NewEncoder(buf)
-	err = enc.Encode(data)
-	if err != nil {
-		return err
-	}
-
-	pd.set(buf.Bytes())
-	return nil
+	return op.leasesIgnored.prepare(pd)
 }
 
 func (op *hostnameOperator) prepareHostnamesData(pd *preparedResult) error {
@@ -265,7 +227,6 @@ func (op *hostnameOperator) prune() {
 	if op.leasesIgnored.prune() {
 		op.flagIgnoreListData()
 	}
-
 }
 
 func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, failure error) {
@@ -469,12 +430,13 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 		op.log.Debug("Swapping ingress to new deployment")
 		//  Delete the ingress in one namespace and recreate it in the correct one
 		err = op.client.RemoveHostnameFromDeployment(ctx, ev.GetHostname(), entry.presentLease, false)
+		// TODO - remove entry
 		if err == nil {
 			err = op.client.ConnectHostnameToDeployment(ctx, directive)
 		}
 	}
 
-	if err == nil { // Update sored entry if everything went OK
+	if err == nil { // Update stored entry if everything went OK
 		entry.presentExternalPort = ev.GetExternalPort()
 		entry.presentServiceName = ev.GetServiceName()
 		entry.presentLease = leaseID
@@ -487,25 +449,29 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 	return err
 }
 
-func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig) (*hostnameOperator) {
-
+func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc ignoreListConfig) (*hostnameOperator) {
 	op := &hostnameOperator{
-		hostnames:  make(map[string]managedHostname),
-		client:     client,
-		log:        logger,
-		cfg:        config,
-		server: newOperatorHttp(),
-		leasesIgnored: newIgnoreList(ignoreListConfig{ // TODO - should be a param
-			failureLimit: config.eventFailureLimit,
-			entryLimit:   config.ignoreListEntryLimit,
-			ageLimit:     config.ignoreListAgeLimit,
-		}),
+		hostnames:     make(map[string]managedHostname),
+		client:        client,
+		log:           logger,
+		cfg:           config,
+		server:        newOperatorHttp(),
+		leasesIgnored: newIgnoreList(ilc),
 	}
+
 
 	op.flagIgnoreListData = op.server.addPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
 	op.flagHostnamesData = op.server.addPreparedEndpoint("/managed-hostnames",op.prepareHostnamesData)
 
 	return op
+}
+
+func ignoreListConfigFromViper() ignoreListConfig {
+	return ignoreListConfig{
+		failureLimit: viper.GetUint(FlagEventFailureLimit),
+		entryLimit:   viper.GetUint(FlagIgnoreListEntryLimit),
+		ageLimit:     viper.GetDuration(FlagIgnoreListAgeLimit),
+	}
 }
 
 func doHostnameOperator(cmd *cobra.Command) error {
@@ -515,14 +481,11 @@ func doHostnameOperator(cmd *cobra.Command) error {
 	config := hostnameOperatorConfig{
 		listenAddress:        viper.GetString(FlagListenAddress),
 		pruneInterval:        viper.GetDuration(FlagPruneInterval),
-		ignoreListEntryLimit: viper.GetUint(FlagIgnoreListEntryLimit),
 		webRefreshInterval:   viper.GetDuration(FlagWebRefreshInterval),
 		retryDelay:           viper.GetDuration(FlagRetryDelay),
-		ignoreListAgeLimit:   viper.GetDuration(FlagIgnoreListAgeLimit),
-		eventFailureLimit:    viper.GetUint(FlagEventFailureLimit),
 	}
 
-	logger := openLogger()
+	logger := openLogger().With("op","hostname")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -531,7 +494,7 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op := newHostnameOperator(logger, client, config)
+	op := newHostnameOperator(logger, client, config, ignoreListConfigFromViper())
 
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
@@ -605,7 +568,7 @@ func addOperatorFlags(cmd *cobra.Command) {
 func HostnameOperatorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "hostname-operator",
-		Short:        "",
+		Short:        "kubernetes operator interfacing with k8s nginx ingress",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doHostnameOperator(cmd)

@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types"
+	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"sync/atomic"
 	"time"
@@ -75,6 +79,48 @@ func newIgnoreList(config ignoreListConfig) *ignoreList{
 		entries: make(map[mtypes.LeaseID]ignoreListEntry),
 		cfg:     config,
 	}
+}
+
+func (il *ignoreList) prepare(pd *preparedResult) error {
+	data := make(map[string]interface{})
+
+	err := il.each(func(leaseID mtypes.LeaseID, lastError error, failedAt time.Time, count uint, extra ...string) error {
+		preparedEntry := struct {
+			Hostnames     []string `json:"hostnames"`
+			LastError     string   `json:"last-error"`
+			LastErrorType string   `json:"last-error-type"`
+			FailedAt      string   `json:"failed-at"`
+			FailureCount  uint     `json:"failure-count"`
+			Namespace     string   `json:"namespace"`
+		}{
+			LastError:     lastError.Error(),
+			LastErrorType: fmt.Sprintf("%T", lastError),
+			FailedAt:      failedAt.UTC().String(),
+			FailureCount:  count,
+			Namespace:     clusterutil.LeaseIDToNamespace(leaseID),
+		}
+
+		for _, hostname := range extra {
+			preparedEntry.Hostnames = append(preparedEntry.Hostnames, hostname)
+		}
+
+		data[leaseID.String()] = preparedEntry
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	buf := &bytes.Buffer{}
+	enc := json.NewEncoder(buf)
+	err = enc.Encode(data)
+	if err != nil {
+		return err
+	}
+
+	pd.set(buf.Bytes())
+	return nil
+
 }
 
 func (il *ignoreList) size() int {

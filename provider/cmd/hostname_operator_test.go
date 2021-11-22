@@ -156,7 +156,6 @@ func TestHostnameOperatorPrune(t *testing.T) {
 	require.Equal(t, s.op.leasesIgnored.size(), testIterationCount)
 	s.op.prune()
 	require.Less(t, s.op.leasesIgnored.size(), testIterationCount)
-
 }
 
 func TestHostnameOperatorApplyDelete(t *testing.T) {

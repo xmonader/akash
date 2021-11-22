@@ -46,7 +46,7 @@ func (opHttp *operatorHttp) addPreparedEndpoint(path string, prepare prepareFn) 
 
 	opHttp.router.HandleFunc(path, func(rw http.ResponseWriter, req *http.Request){
 		servePreparedResult(rw, entry.data)
-	}).Methods("GET")
+	}).Methods(http.MethodGet)
 
 	return entry.data.flag
 }

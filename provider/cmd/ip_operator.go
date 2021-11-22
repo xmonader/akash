@@ -1,9 +1,14 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	"golang.org/x/sync/errgroup"
+	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	"net/http"
+	"strings"
 
 	"errors"
 	"fmt"
@@ -22,16 +27,20 @@ type managedIp struct {
 	presentLease mtypes.LeaseID
 	presentServiceName string
 	lastEvent ctypes.IPResourceEvent
+	presentSharingKey string
+	presentExternalPort uint32
+	presentPort uint32
+	lastChangedAt time.Time
 }
 
 type ipOperator struct {
 	state map[string]managedIp
-
 	client cluster.Client
-
 	log log.Logger
-
 	server *operatorHttp
+	leasesIgnored *ignoreList
+	flagState prepareFlagFn
+	flagIgnoredLeases prepareFlagFn
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -45,15 +54,20 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 		cancel()
 		return err
 	}
-
+	startupTime := time.Now()
 	for _, ipPassThrough := range entries {
 		k := getStateKey(ipPassThrough.GetLeaseID(), ipPassThrough.GetSharingKey(), ipPassThrough.GetExternalPort())
 		op.state[k] = managedIp{
 			presentLease:       ipPassThrough.GetLeaseID(),
-			presentServiceName: ipPassThrough.GetSharingKey(),
+			presentServiceName: ipPassThrough.GetServiceName(),
 			lastEvent:          nil,
+			presentSharingKey: ipPassThrough.GetSharingKey(),
+			presentExternalPort: ipPassThrough.GetExternalPort(),
+			presentPort: ipPassThrough.GetPort(),
+			lastChangedAt:  startupTime,
 		}
 	}
+	op.flagState()
 
 	events, err := op.client.ObserveIPState(ctx)
 	if err != nil {
@@ -62,6 +76,12 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	}
 
 	var exitError error
+
+	pruneTicker := time.NewTicker(2 * time.Minute /*op.cfg.pruneInterval*/)
+	defer pruneTicker.Stop()
+	prepareTicker := time.NewTicker(2 * time.Second /*op.cfg.webRefreshInterval*/)
+	defer prepareTicker.Stop()
+
 loop:
 	for {
 		select {
@@ -80,12 +100,55 @@ loop:
 				exitError = err
 				break loop
 			}
+		case <-pruneTicker.C:
+			op.leasesIgnored.prune()
+			op.flagIgnoredLeases()
+		case <-prepareTicker.C:
+			if err := op.server.prepareAll(); err != nil {
+				op.log.Error("preparing web data failed", "err", err)
+			}
 		}
 	}
 
 	cancel()
-	op.log.Debug("ip operator done")
+	op.log.Info("ip operator done")
 	return exitError
+}
+
+func (op *ipOperator) recordEventError(ev ctypes.IPResourceEvent, failure error) {
+	// ff no error, no action
+	if failure == nil {
+		return
+	}
+
+	// check the error, only consider errors that are obviously
+	// indicating a missing resource
+	// otherwise simple errors like network issues could wind up with all CRDs
+	// being ignored
+
+	mark := false
+
+	if kubeErrors.IsNotFound(failure) {
+		mark = true
+	}
+
+	if errors.Is(failure, errExpectedResourceNotFound) {
+		mark = true
+	}
+
+	errStr := failure.Error()
+	// unless the error indicates a resource was not found, no action
+	if strings.Contains(errStr, "not found") {
+		mark = true
+	}
+
+	if !mark {
+		return
+	}
+
+	op.log.Info("recording error for", "lease", ev.GetLeaseID().String(), "err", failure)
+	op.leasesIgnored.addError(ev.GetLeaseID(), failure, ev.GetSharingKey())
+	op.flagIgnoredLeases()
 }
 
 func (op *ipOperator) applyEvent(ctx context.Context, ev ctypes.IPResourceEvent) error {
@@ -95,7 +158,13 @@ func (op *ipOperator) applyEvent(ctx context.Context, ev ctypes.IPResourceEvent)
 		// note that on delete the resource might be gone anyways because the namespace is deleted
 		return op.applyDeleteEvent(ctx, ev)
 	case ctypes.ProviderResourceAdd, ctypes.ProviderResourceUpdate:
-		return op.applyAddOrUpdateEvent(ctx, ev)
+		if op.leasesIgnored.isFlagged(ev.GetLeaseID()) {
+			op.log.Info("ignoring event for", "lease", ev.GetLeaseID().String())
+			return nil
+		}
+		err := op.applyAddOrUpdateEvent(ctx, ev)
+		op.recordEventError(ev, err)
+		return err
 	default:
 		return fmt.Errorf("%w: unknown event type %v", errObservationStopped, ev.GetEventType())
 	}
@@ -109,6 +178,7 @@ func (op *ipOperator) applyDeleteEvent(ctx context.Context, ev ctypes.IPResource
 	if err == nil {
 		uid := getStateKeyFromEvent(ev)
 		delete(op.state, uid)
+		op.flagState()
 	}
 
 	return err
@@ -144,46 +214,42 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		"externalPort", ev.GetExternalPort())
 	entry, exists := op.state[uid]
 
-	isSameLease := false
-	if exists {
-		isSameLease = entry.presentLease.Equals(leaseID)
-	} else {
-		isSameLease = true
-	}
-
 	directive := buildIPDirective(ev)
 
 	var err error
-	if isSameLease {
-		shouldConnect := false
+	shouldConnect := false
 
-		if !exists {
-			shouldConnect = true
-			op.log.Debug("ip passthrough is new, applying")
-			// Check to see if port or service name is different
-		} else if entry.presentServiceName != ev.GetServiceName() {
+	if !exists {
+		shouldConnect = true
+		op.log.Debug("ip passthrough is new, applying")
+		// Check to see if port or service name is different
+	} else {
+		hasChanged := entry.presentServiceName != ev.GetServiceName() ||
+			entry.presentPort != ev.GetPort() ||
+			entry.presentSharingKey != ev.GetSharingKey() ||
+			entry.presentExternalPort != ev.GetExternalPort()
+		if hasChanged {
 			shouldConnect = true
 			op.log.Debug("ip passthrough has changed, applying")
 		}
-
-		if shouldConnect {
-			op.log.Debug("Updating ip passthrough")
-			err = op.client.CreateIPPassthrough(ctx, leaseID, directive)
-		}
-	} else {
-		op.log.Debug("Swapping ip passthrough to new deployment")
-		err = op.client.PurgeIPPassthrough(ctx, leaseID, directive)
-
-		if err == nil {
-			err = op.client.CreateIPPassthrough(ctx, leaseID, directive)
-		}
 	}
+
+	if shouldConnect {
+		op.log.Debug("Updating ip passthrough")
+		err = op.client.CreateIPPassthrough(ctx, leaseID, directive)
+	}
+
 
 	if err == nil { // Update stored entry if everything went OK
 		entry.presentServiceName = ev.GetServiceName()
 		entry.presentLease = leaseID
 		entry.lastEvent = ev
+		entry.presentExternalPort = ev.GetExternalPort()
+		entry.presentSharingKey = ev.GetSharingKey()
+		entry.presentPort = ev.GetPort()
+		entry.lastChangedAt = time.Now()
 		op.state[uid] = entry
+		op.flagState()
 	}
 
 	return err
@@ -194,25 +260,70 @@ func (op *ipOperator) webRouter() http.Handler {
 }
 
 
-func newIpOperator(logger log.Logger, client cluster.Client) (*ipOperator) {
+func (op *ipOperator) prepareIgnoredLeases(pd *preparedResult) error {
+	op.log.Debug("preparing ignore-list")
+	return op.leasesIgnored.prepare(pd)
+}
+
+func (op *ipOperator) prepareState(pd *preparedResult) error {
+
+	results := make(map[string]interface{})
+	for _, managedIpEntry := range op.state {
+		leaseID := managedIpEntry.presentLease
+
+		k := getStateKey(leaseID, managedIpEntry.presentSharingKey, managedIpEntry.presentExternalPort)
+
+		// TODO - add the resource name in kubernetes, for diagnostic reasons
+		result := struct{
+			LastEventTime string `json:"last-event-time,omitempty"`
+			LeaseID      mtypes.LeaseID
+			Namespace    string // diagnostic only
+			Port uint32
+			ExternalPort uint32
+			ServiceName  string
+			LastUpdate   string
+		}{
+
+			LeaseID:      leaseID,
+			Namespace:    clusterutil.LeaseIDToNamespace(leaseID),
+			Port:         managedIpEntry.presentPort,
+			ExternalPort: managedIpEntry.presentExternalPort,
+			ServiceName:  managedIpEntry.presentServiceName,
+			LastUpdate:   managedIpEntry.lastChangedAt.String(),
+		}
+
+		results[k] = result
+	}
+
+	buf := &bytes.Buffer{}
+	enc := json.NewEncoder(buf)
+	err := enc.Encode(results)
+	if err != nil {
+		return err
+	}
+
+	pd.set(buf.Bytes())
+	return nil
+}
+
+func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig) (*ipOperator) {
 	retval := &ipOperator{
 		state:  make(map[string]managedIp),
 		client: client,
 		log:    logger,
 		server: newOperatorHttp(),
+		leasesIgnored: newIgnoreList(ilc),
 	}
 
-	retval.server.router.HandleFunc("/heartbeat", func(rw http.ResponseWriter, req *http.Request){
-		rw.WriteHeader(http.StatusOK)
-	})
-
+	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
+	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/state", retval.leasesIgnored.prepare)
 	return retval
 }
 
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(FlagK8sManifestNS)
 	listenAddr := viper.GetString(FlagListenAddress)
-	logger := openLogger()
+	logger := openLogger().With("operator","ip")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -221,7 +332,7 @@ func doIPOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op := newIpOperator(logger, client)
+	op := newIpOperator(logger, client, ignoreListConfigFromViper())
 
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
@@ -253,7 +364,7 @@ func doIPOperator(cmd *cobra.Command) error {
 func IPOperatorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "ip-operator",
-		Short:        "",
+		Short:        "kubernetes operator interfacing with Metal LB",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return doIPOperator(cmd)
