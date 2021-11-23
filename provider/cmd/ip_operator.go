@@ -7,6 +7,7 @@ import (
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	"golang.org/x/sync/errgroup"
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/kubernetes"
 	"net/http"
 	"strings"
 
@@ -21,6 +22,9 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 
 	"time"
+
+	authv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type managedIp struct {
@@ -317,6 +321,29 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
 	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/state", retval.leasesIgnored.prepare)
+
+	var kc kubernetes.Interface
+
+	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
+		clientId := req.Header.Get("X-Client-Id")
+		tr := authv1.TokenReview{
+			Spec: authv1.TokenReviewSpec{
+				Token: clientId,
+			},
+		}
+		result, err := kc.AuthenticationV1().TokenReviews().Create(req.Context(), &tr, metav1.CreateOptions{})
+		if err != nil {
+			panic(err)
+		}
+
+		if ! result.Status.Authenticated {
+			panic("not authed")
+		}
+
+		userInfo := result.Status.User
+		_ = userInfo.Extra
+
+	}).Methods(http.MethodGet, http.MethodPut)
 	return retval
 }
 
