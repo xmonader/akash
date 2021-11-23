@@ -45,6 +45,8 @@ type ipOperator struct {
 	leasesIgnored *ignoreList
 	flagState prepareFlagFn
 	flagIgnoredLeases prepareFlagFn
+
+	kube kubernetes.Interface
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {

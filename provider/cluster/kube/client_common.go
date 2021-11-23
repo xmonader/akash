@@ -8,7 +8,6 @@ import (
 )
 
 func recoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) {
-
 	dseqS, ok := labels[builder.AkashLeaseDSeqLabelName]
 	if !ok {
 		return mtypes.LeaseID{}, fmt.Errorf("%w: %q", ErrMissingLabel, builder.AkashLeaseDSeqLabelName)

@@ -36,6 +36,7 @@ import (
 
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
+	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
 )
 
 var (
@@ -86,7 +87,7 @@ func NewPreparedClient(log log.Logger, ns string, configPath string) (Client, er
 func newClientWithSettings(log log.Logger, ns string, configPath string, prepare bool) (Client, error) {
 	ctx := context.Background()
 
-	config, err := openKubeConfig(configPath, log)
+	config, err := client_common.OpenKubeConfig(configPath, log)
 	if err != nil {
 		return nil, errors.Wrap(err, "kube: error building config flags")
 	}
@@ -125,21 +126,6 @@ func newClientWithSettings(log log.Logger, ns string, configPath string, prepare
 		log:               log.With("module", "provider-cluster-kube"),
 		kubeContentConfig: config,
 	}, nil
-}
-
-func openKubeConfig(cfgPath string, log log.Logger) (*rest.Config, error) {
-	// If no value is specified, use a default
-	if len(cfgPath) == 0 {
-		cfgPath = path.Join(homedir.HomeDir(), ".kube", "config")
-	}
-
-	if _, err := os.Stat(cfgPath); err == nil {
-		log.Info("using kube config file", "path", cfgPath)
-		return clientcmd.BuildConfigFromFlags("", cfgPath)
-	}
-
-	log.Info("using in cluster kube config")
-	return rest.InClusterConfig()
 }
 
 func (c *client) GetDeployments(ctx context.Context, dID dtypes.DeploymentID) ([]ctypes.Deployment, error) {
