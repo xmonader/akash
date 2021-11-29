@@ -22,9 +22,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 
 	"time"
-
-	authv1 "k8s.io/api/authentication/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type managedIp struct {
@@ -312,6 +309,14 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 	return nil
 }
 
+type ipInventory struct {
+	addressesInUse uint
+}
+
+func (ipi *ipInventory) refresh() error {
+	return nil
+}
+
 func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig) (*ipOperator) {
 	retval := &ipOperator{
 		state:  make(map[string]managedIp),
@@ -322,28 +327,16 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 	}
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
-	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/state", retval.leasesIgnored.prepare)
+	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
 
-	var kc kubernetes.Interface
 
 	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
-		clientId := req.Header.Get("X-Client-Id")
-		tr := authv1.TokenReview{
-			Spec: authv1.TokenReviewSpec{
-				Token: clientId,
-			},
-		}
-		result, err := kc.AuthenticationV1().TokenReviews().Create(req.Context(), &tr, metav1.CreateOptions{})
-		if err != nil {
-			panic(err)
-		}
 
-		if ! result.Status.Authenticated {
-			panic("not authed")
-		}
+		clientID := req.Header.Get("X-Client-Id")
+		_ = clientID
 
-		userInfo := result.Status.User
-		_ = userInfo.Extra
+		// TODO - add auth based off TokenReview via k8s interface
+
 
 	}).Methods(http.MethodGet, http.MethodPut)
 	return retval
@@ -364,6 +357,9 @@ func doIPOperator(cmd *cobra.Command) error {
 	op := newIpOperator(logger, client, ignoreListConfigFromViper())
 
 	router := op.webRouter()
+
+
+
 	group, ctx := errgroup.WithContext(cmd.Context())
 
 	group.Go(func() error {
