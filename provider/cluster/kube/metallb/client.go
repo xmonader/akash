@@ -8,25 +8,37 @@ import (
 	"k8s.io/client-go/util/flowcontrol"
 	"github.com/tendermint/tendermint/libs/log"
 	"math"
+	"math/rand"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/prometheus/common/expfmt"
 )
 
 type Client interface {
-	GetIPAddressCount() (uint, error)
-	GetIPAddressInUseCount() (uint, error)
+	GetIPAddressUsage() (uint, uint, error)
 }
 
 type client struct {
 	kube kubernetes.Interface
 	httpClient *http.Client
+
+	metricsHost string
+	metricsPort uint16
 }
 
 
 const (
 	metricsPath = "/metrics"
 	metricsTimeout = 10 * time.Second
+
+	poolName = "default"
+
+	serviceHostName = "controller.metallb-system.svc.cluster.local"
+
+	metricNameAddrInUse = "metallb_allocator_addresses_in_use_total"
+	metricNameAddrTotal = "metallb_allocator_addresses_total"
 )
 
 var (
@@ -81,6 +93,16 @@ func NewClient(configPath string, log log.Logger) (Client, error){
 		ForceAttemptHTTP2:      false,
 	}
 
+	_, addrs, err := net.LookupSRV("monitoring","tcp", serviceHostName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ignore priority & weight, just make a random selection. This generally has a length
+	// of 1
+	addrI := rand.Int31n(int32(len(addrs)))
+	addr := addrs[addrI]
+
 	return &client{
 		kube: kc,
 		httpClient: &http.Client{
@@ -89,42 +111,97 @@ func NewClient(configPath string, log log.Logger) (Client, error){
 			Jar:           nil,
 			Timeout:       metricsTimeout,
 		},
+		metricsHost: addr.Target,
+		metricsPort: addr.Port,
 	}, nil
 
 }
 
 /*
 can get stuff like this to access metal lb metrics
-   75  nslookup -type=SRV _monitoring._tcp.controller.metallb-system.svc.cluster.local
+   75  nslookup -type=SRV _monitoring._tcp.
 
   102  curl -I controller.metallb-system.svc.cluster.local:7472/metrics
 
  */
 
 
-func (c *client) GetIPAddressCount() (uint, error) {
-
-	request, err := http.NewRequest(http.MethodGet, metricsPath, nil)
+func (c *client) GetIPAddressUsage() (uint, uint,  error) {
+	metricsURL := fmt.Sprintf("http://%s:%d%s", c.metricsHost, c.metricsPort, metricsPath)
+	request, err := http.NewRequest(http.MethodGet, metricsURL, nil)
 	if err != nil {
-		return math.MaxUint32, err
+		return math.MaxUint32,math.MaxUint32, err
 	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return math.MaxUint32, err
+		return math.MaxUint32,math.MaxUint32, err
 	}
 
-	if response.Code != http.StatusOK {
-		return math.MaxUint32, fmt.Errorf("%w: response status %d", errMetalLB, response.Code)
+	if response.StatusCode != http.StatusOK {
+		return math.MaxUint32,math.MaxUint32, fmt.Errorf("%w: response status %d", errMetalLB, response.StatusCode)
 	}
 
 
+	var parser expfmt.TextParser
+	mf, err := parser.TextToMetricFamilies(response.Body)
+	if err != nil {
+		return math.MaxUint32,math.MaxUint32, err
+	}
 
+	/**
+	  Loooking for the following metrics
+	    metallb_allocator_addresses_in_use_total{pool="default"} 0
+	    metallb_allocator_addresses_total{pool="default"} 100
+	 */
 
+	available := uint(0)
+	setAvailable := false
+	inUse := uint(0)
+	setInUse := false
+	for _, entry := range mf {
+		if setInUse && setAvailable {
+			break
+		}
+		var target *uint
+		var setTarget *bool
+		if entry.GetName() == metricNameAddrInUse   {
+			target = &inUse
+			setTarget = &setInUse
+		} else if entry.GetName() == metricNameAddrTotal {
+			target = &available
+			setTarget = &setAvailable
+		} else {
+			continue
+		}
 
-	return 0, nil
+		metric := entry.GetMetric()
+		searchLoop:
+		for _, metricEntry := range metric{
+			gauge := metricEntry.GetGauge()
+			if gauge == nil {
+				continue
+			}
+			for _, labelEntry := range metricEntry.Label {
+				if labelEntry.GetName()  != "pool" {
+					continue
+				}
+
+				if labelEntry.GetValue() != poolName {
+					continue
+				}
+
+				*target = uint(*gauge.Value)
+				*setTarget = true
+				break searchLoop
+			}
+		}
+	}
+
+	if !setInUse || !setAvailable {
+		return math.MaxUint32, math.MaxUint32, fmt.Errorf("%w: data not found in metrics response", errMetalLB)
+	}
+
+	return available, inUse, nil
 }
 
-func (c *client) GetIPAddressInUseCount() (uint, error) {
-	return 0, nil
-}
