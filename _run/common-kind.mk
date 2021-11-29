@@ -26,8 +26,6 @@ KIND_PORT_BINDINGS ?= $(shell docker inspect "$(KIND_NAME)-control-plane" \
 KIND_CONFIG        ?= kind-config.yaml
 KIND_CONFIG_CALICO ?= ../kind-config-calico.yaml
 
-DOCKER_IMAGE       ?= ghcr.io/ovrclk/akash:latest
-
 PROVIDER_HOSTNAME ?= localhost
 PROVIDER_HOST     ?= $(PROVIDER_HOSTNAME):$(KIND_HTTP_PORT)
 PROVIDER_ENDPOINT ?= http://$(PROVIDER_HOST)
@@ -38,6 +36,10 @@ CALICO_MANIFEST     ?= https://docs.projectcalico.org/v3.8/manifests/calico.yaml
 METALLB_CONFIG_PATH ?= ../metallb.yaml
 METALLB_IP_CONFIG_PATH ?= ../kind-config-metal-lb-ip.yaml
 
+IMAGE_NAME_FILE ?= ./docker_image.txt
+
+DOCKER_IMAGE ?= $(shell cat $(IMAGE_NAME_FILE))
+
 .PHONY: app-http-port
 app-http-port:
 	@echo $(KIND_HTTP_PORT)
@@ -46,11 +48,16 @@ app-http-port:
 kind-k8s-ip:
 	@echo $(KIND_K8S_IP)
 
+.PHONY: kustomize-init-docker-image
+kustomize-init-docker-image:
+	docker build -f ../../_build/Dockerfile.akash ../../.cache/bin --quiet | tee $(IMAGE_NAME_FILE)
+
 .PHONY: kind-configure-image
 kind-configure-image:
 	echo "- op: replace\n  path: /spec/template/spec/containers/0/image\n  value: $(DOCKER_IMAGE)" > ./kustomize/akash-node/docker-image.yaml && \
 	cp ./kustomize/akash-node/docker-image.yaml ./kustomize/akash-provider/docker-image.yaml && \
-	cp ./kustomize/akash-node/docker-image.yaml ./kustomize/akash-hostname-operator/docker-image.yaml
+	cp ./kustomize/akash-node/docker-image.yaml ./kustomize/akash-hostname-operator/docker-image.yaml && \
+	cp ./kustomize/akash-node/docker-image.yaml ./kustomize/akash-ip-operator/docker-image.yaml
 
 .PHONY: kind-upload-image
 kind-upload-image: $(KIND)

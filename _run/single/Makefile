@@ -25,6 +25,7 @@ kustomize-init: kustomize-init-akash-node kustomize-init-provider kind-namespace
 kustomize-init-akash-node:
 	mkdir -p "$(KUSTOMIZE_AKASHD_CACHE)"
 	cp -r "$(AKASH_HOME)/"* "$(KUSTOMIZE_AKASHD_CACHE)/"
+	# Patch to select local docker image
 
 .PHONY: kustomize-init-provider
 kustomize-init-provider:
@@ -36,6 +37,13 @@ kustomize-init-provider:
 		cat "$(KUSTOMIZE_PROVIDER_CACHE)/key-pass.txt" ; \
 		cat "$(KUSTOMIZE_PROVIDER_CACHE)/key-pass.txt"   \
 	) | $(AKASH) keys export provider 1> "$(KUSTOMIZE_PROVIDER_CACHE)/key.txt"
+	# Patch to select local docker image
+
+.PHONY: kustomize-init-hostname-operator
+kustomize-init-hostname-operator:
+
+.PHONY: kustomize-init-ip-operator
+kustomize-init-ip-operator:
 
 .PHONY: kustomize-install-node
 kustomize-install-node:
@@ -45,7 +53,7 @@ kustomize-install-node:
 kustomize-install-provider:
 	kubectl kustomize kustomize/akash-provider | kubectl apply -f-
 
-.PHONY: kustmoize-install-hostname-operator
+.PHONY: kustomize-install-hostname-operator
 kustomize-install-hostname-operator:
 	kubectl kustomize ./kustomize/akash-hostname-operator | kubectl apply -f -
 
