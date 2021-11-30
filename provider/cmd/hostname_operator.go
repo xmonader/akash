@@ -523,13 +523,13 @@ func doHostnameOperator(cmd *cobra.Command) error {
 	return nil
 }
 
-func addOperatorFlags(cmd *cobra.Command) {
+func addOperatorFlags(cmd *cobra.Command, defaultListenAddress string) {
 	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
 	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
 		panic(err)
 	}
 
-	cmd.Flags().String(FlagListenAddress, "0.0.0.0:8085", "listen address for web server")
+	cmd.Flags().String(FlagListenAddress, defaultListenAddress, "listen address for web server")
 	if err := viper.BindPFlag(FlagListenAddress, cmd.Flags().Lookup(FlagListenAddress)); err != nil {
 		panic(err)
 	}
@@ -574,7 +574,7 @@ func HostnameOperatorCmd() *cobra.Command {
 			return doHostnameOperator(cmd)
 		},
 	}
-	addOperatorFlags(cmd)
+	addOperatorFlags(cmd, "0.0.0.0:8085")
 
 	return cmd
 }

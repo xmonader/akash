@@ -31,6 +31,7 @@ PROVIDER_HOST     ?= $(PROVIDER_HOSTNAME):$(KIND_HTTP_PORT)
 PROVIDER_ENDPOINT ?= http://$(PROVIDER_HOST)
 
 HOSTNAME_OPERATOR_HOST ?= akash-hostname-operator.localhost
+IPE_OPERATOR_HOST ?= akash-ip-operator.localhost
 INGRESS_CONFIG_PATH ?= ../ingress-nginx.yaml
 INGRESS_CLASS_CONFIG_PATH ?= ../ingress-nginx-class.yaml
 CALICO_MANIFEST     ?= https://docs.projectcalico.org/v3.8/manifests/calico.yaml

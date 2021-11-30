@@ -395,7 +395,7 @@ func IPOperatorCmd() *cobra.Command {
 			return doIPOperator(cmd)
 		},
 	}
-	addOperatorFlags(cmd)
+	addOperatorFlags(cmd,"0.0.0.0:8086")
 
 	return cmd
 }
