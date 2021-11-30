@@ -75,3 +75,11 @@ clean-$(AKASH_RUN_NAME):
 	rm -f  $(CURDIR)/kustomize/akash-node/docker-image.yaml
 	rm -rf $(CURDIR)/kustomize/akash-provider/cache
 	rm -f  $(CURDIR)/kustomize/akash-provider/docker-image.yaml
+
+.PHONY: hostname-operator-hostnames
+hostname-operator-hostnames:
+	curl -H 'Host: $(HOSTNAME_OPERATOR_HOST)' localhost:$(KIND_PORT_BINDINGS)/managed-hostnames
+
+.PHONY: hostname-operator-ignored
+hostname-operator-ignored:
+	curl -H 'Host: $(HOSTNAME_OPERATOR_HOST)' localhost:$(KIND_PORT_BINDINGS)/ignore-list
