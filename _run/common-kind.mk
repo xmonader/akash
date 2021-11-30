@@ -50,7 +50,7 @@ kind-k8s-ip:
 
 .PHONY: kustomize-init-docker-image
 kustomize-init-docker-image:
-	docker build -f ../../_build/Dockerfile.akash ../../.cache/bin --quiet | tee $(IMAGE_NAME_FILE)
+	../build_local_docker_image.sh $(IMAGE_NAME_FILE)
 
 .PHONY: kind-configure-image
 kind-configure-image:
