@@ -4,22 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
-	"golang.org/x/sync/errgroup"
-	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/kubernetes"
-	"net/http"
-	"strings"
-
 	"errors"
 	"fmt"
 	"github.com/ovrclk/akash/provider/cluster"
 	clusterClient "github.com/ovrclk/akash/provider/cluster/kube"
+	"github.com/ovrclk/akash/provider/cluster/kube/metallb"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types"
+	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/log"
+	"golang.org/x/sync/errgroup"
+	"k8s.io/client-go/kubernetes"
+	"net/http"
 
 	"time"
 )
@@ -43,7 +41,11 @@ type ipOperator struct {
 	flagState prepareFlagFn
 	flagIgnoredLeases prepareFlagFn
 
+	available uint
+	inUse uint
+
 	kube kubernetes.Interface
+	mllbc metallb.Client
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -85,14 +87,23 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	prepareTicker := time.NewTicker(2 * time.Second /*op.cfg.webRefreshInterval*/)
 	defer prepareTicker.Stop()
 
+	const updateCountDelay = time.Second * 5
+	isUpdating := true
+	updateCountsTicker := time.NewTicker(updateCountDelay) // TODO - can we make this delay lower ?
+	defer updateCountsTicker.Stop()
 loop:
 	for {
+		eventsCopy := events
+		if isUpdating {
+			eventsCopy = nil
+		}
+		prepareData := false
 		select {
 		case <-ctx.Done():
 			exitError = ctx.Err()
 			break loop
 
-		case ev, ok := <-events:
+		case ev, ok := <-eventsCopy:
 			if !ok {
 				exitError = errObservationStopped
 				break loop
@@ -103,10 +114,28 @@ loop:
 				exitError = err
 				break loop
 			}
+
+			updateCountsTicker.Reset(updateCountDelay)
+			isUpdating = true
 		case <-pruneTicker.C:
 			op.leasesIgnored.prune()
 			op.flagIgnoredLeases()
+			prepareData = true
 		case <-prepareTicker.C:
+			prepareData = true
+
+		case <-updateCountsTicker.C:
+			updateCountsTicker.Stop()
+			err = op.updateCounts()
+			if err != nil {
+				exitError = err
+				break loop
+			}
+			isUpdating = false
+			prepareData = true
+		}
+
+		if prepareData {
 			if err := op.server.prepareAll(); err != nil {
 				op.log.Error("preparing web data failed", "err", err)
 			}
@@ -118,32 +147,25 @@ loop:
 	return exitError
 }
 
+func (op *ipOperator) updateCounts() error {
+	inUse, available, err := op.mllbc.GetIPAddressUsage()
+	if err != nil {
+		return err
+	}
+
+	op.inUse = inUse
+	op.available = available
+	op.log.Info("ip address inventory", "in-use", op.inUse, "available", op.available)
+	return nil
+}
+
 func (op *ipOperator) recordEventError(ev ctypes.IPResourceEvent, failure error) {
 	// ff no error, no action
 	if failure == nil {
 		return
 	}
 
-	// check the error, only consider errors that are obviously
-	// indicating a missing resource
-	// otherwise simple errors like network issues could wind up with all CRDs
-	// being ignored
-
-	mark := false
-
-	if kubeErrors.IsNotFound(failure) {
-		mark = true
-	}
-
-	if errors.Is(failure, errExpectedResourceNotFound) {
-		mark = true
-	}
-
-	errStr := failure.Error()
-	// unless the error indicates a resource was not found, no action
-	if strings.Contains(errStr, "not found") {
-		mark = true
-	}
+	mark := errorIsKubernetesResourceNotFound(failure)
 
 	if !mark {
 		return
@@ -204,6 +226,18 @@ func getStateKey(leaseID mtypes.LeaseID, sharingKey string, externalPort uint32)
 
 func getStateKeyFromEvent(ev ctypes.IPResourceEvent) string{
 	return getStateKey(ev.GetLeaseID(), ev.GetSharingKey(), ev.GetExternalPort())
+}
+
+func (op *ipOperator) decrInUse() uint {
+	if op.inUse != 0 {
+		op.inUse--
+	}
+	return op.inUse
+}
+
+func (op *ipOperator) incrInUse() uint {
+	op.inUse++
+	return op.inUse
 }
 
 func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPResourceEvent) error {
@@ -317,13 +351,14 @@ func (ipi *ipInventory) refresh() error {
 	return nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig) (*ipOperator) {
+func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client) (*ipOperator) {
 	retval := &ipOperator{
 		state:  make(map[string]managedIp),
 		client: client,
 		log:    logger,
 		server: newOperatorHttp(),
 		leasesIgnored: newIgnoreList(ilc),
+		mllbc: mllbc,
 	}
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
@@ -336,8 +371,6 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		_ = clientID
 
 		// TODO - add auth based off TokenReview via k8s interface
-
-
 	}).Methods(http.MethodGet, http.MethodPut)
 	return retval
 }
@@ -349,17 +382,21 @@ func doIPOperator(cmd *cobra.Command) error {
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
-	client, err := clusterClient.NewClient(logger, ns, "")
+	configPath := ""
+	client, err := clusterClient.NewClient(logger, ns, configPath)
 	if err != nil {
 		return err
 	}
 
-	op := newIpOperator(logger, client, ignoreListConfigFromViper())
+	mllbc, err := metallb.NewClient(configPath, logger)
+	if err != nil {
+		return err
+	}
 
+	logger.Info("clients","kube", client, "metallb", mllbc)
+
+	op := newIpOperator(logger, client, ignoreListConfigFromViper(), mllbc)
 	router := op.webRouter()
-
-
-
 	group, ctx := errgroup.WithContext(cmd.Context())
 
 	group.Go(func() error {

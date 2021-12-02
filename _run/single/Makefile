@@ -19,10 +19,10 @@ kind-namespace-setup:
 	kubectl apply -f "$(KUSTOMIZE_ROOT)/networking"
 
 .PHONY: kustomize-init
-kustomize-init: kustomize-init-akash-node kustomize-init-provider kind-namespace-setup
+kustomize-init: kustomize-init-node kustomize-init-provider kind-namespace-setup
 
-.PHONY: kustomize-init-akash-node
-kustomize-init-akash-node:
+.PHONY: kustomize-init-node
+kustomize-init-node:
 	mkdir -p "$(KUSTOMIZE_AKASHD_CACHE)"
 	chmod u+w -R "$(KUSTOMIZE_AKASHD_CACHE)/"
 	cp -r "$(AKASH_HOME)/"* "$(KUSTOMIZE_AKASHD_CACHE)/"

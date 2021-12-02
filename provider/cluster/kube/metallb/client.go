@@ -26,8 +26,14 @@ type client struct {
 
 	metricsHost string
 	metricsPort uint16
+
+	log               log.Logger
 }
 
+
+func (c *client) String() string {
+	return fmt.Sprintf("metal LB client %p (%s:%d)", c, c.metricsHost, c.metricsPort)
+}
 
 const (
 	metricsPath = "/metrics"
@@ -46,8 +52,8 @@ var (
 )
 
 
-func NewClient(configPath string, log log.Logger) (Client, error){
-	config, err := client_common.OpenKubeConfig(configPath, log)
+func NewClient(configPath string, logger log.Logger) (Client, error){
+	config, err := client_common.OpenKubeConfig(configPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
 	}
@@ -113,6 +119,7 @@ func NewClient(configPath string, log log.Logger) (Client, error){
 		},
 		metricsHost: addr.Target,
 		metricsPort: addr.Port,
+		log: logger.With("client","metallb"),
 	}, nil
 
 }
@@ -202,6 +209,6 @@ func (c *client) GetIPAddressUsage() (uint, uint,  error) {
 		return math.MaxUint32, math.MaxUint32, fmt.Errorf("%w: data not found in metrics response", errMetalLB)
 	}
 
-	return available, inUse, nil
+	return inUse, available, nil
 }
 

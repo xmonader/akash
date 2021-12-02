@@ -37,6 +37,7 @@ INGRESS_CLASS_CONFIG_PATH ?= ../ingress-nginx-class.yaml
 CALICO_MANIFEST     ?= https://docs.projectcalico.org/v3.8/manifests/calico.yaml
 METALLB_CONFIG_PATH ?= ../metallb.yaml
 METALLB_IP_CONFIG_PATH ?= ../kind-config-metal-lb-ip.yaml
+METALLB_SERVICE_PATH ?= ../metallb-service.yaml
 
 IMAGE_NAME_FILE ?= ./docker_image.txt
 
@@ -80,6 +81,7 @@ kind-cluster-create: $(KIND)
 	kubectl apply -f "$(INGRESS_CLASS_CONFIG_PATH)"
 	kubectl apply -f "$(METALLB_CONFIG_PATH)"
 	kubectl apply -f "$(METALLB_IP_CONFIG_PATH)"
+	kubectl apply -f "$(METALLB_SERVICE_PATH)"
 	"$(AKASH_ROOT)/script/setup-kind.sh"
 
 .PHONY: kind-cluster-calico-create
@@ -94,6 +96,7 @@ kind-cluster-calico-create: $(KIND)
 	kubectl apply -f "$(INGRESS_CONFIG_PATH)"
 	kubectl apply -f "$(METALLB_CONFIG_PATH)"
 	kubectl apply -f "$(METALLB_IP_CONFIG_PATH)"
+	kubectl apply -f "$(METALLB_SERVICE_PATH)"
 	$(AKASH_ROOT)/script/setup-kind.sh calico-metrics
 
 .PHONY: kind-ingress-setup
@@ -103,6 +106,7 @@ kind-ingress-setup:
 	kubectl apply -f "$(INGRESS_CLASS_CONFIG_PATH)"
 	kubectl apply -f "$(METALLB_CONFIG_PATH)"
 	kubectl apply -f "$(METALLB_IP_CONFIG_PATH)"
+	kubectl apply -f "$(METALLB_SERVICE_PATH)"
 	"$(AKASH_ROOT)/script/setup-kind.sh"
 
 

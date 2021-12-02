@@ -11,5 +11,5 @@ make kind-upload-image
 
 make kustomize-install-provider
 make kustomize-install-ip-operator
-make kustmoize-install-hostname-operator
+make kustomize-install-hostname-operator
 

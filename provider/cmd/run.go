@@ -483,7 +483,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	log := openLogger()
+	log := openLogger().With("cmp","provider")
 
 	broadcaster, err := broadcaster.NewSerialClient(log, cctx, txFactory, info)
 	if err != nil {

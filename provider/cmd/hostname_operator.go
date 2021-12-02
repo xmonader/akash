@@ -229,32 +229,35 @@ func (op *hostnameOperator) prune() {
 	}
 }
 
-func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, failure error) {
-	// ff no error, no action
-	if failure == nil {
-		return
-	}
-
+func errorIsKubernetesResourceNotFound(failure error) bool {
 	// check the error, only consider errors that are obviously
 	// indicating a missing resource
 	// otherwise simple errors like network issues could wind up with all CRDs
 	// being ignored
 
-	mark := false
-
 	if kubeErrors.IsNotFound(failure) {
-		mark = true
+		return true
 	}
 
 	if errors.Is(failure, errExpectedResourceNotFound) {
-		mark = true
+		return true
 	}
 
 	errStr := failure.Error()
 	// unless the error indicates a resource was not found, no action
 	if strings.Contains(errStr, "not found") {
-		mark = true
+		return true
 	}
+	return false
+}
+
+func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, failure error) {
+	// no error, no action
+	if failure == nil {
+		return
+	}
+
+	mark := errorIsKubernetesResourceNotFound(failure)
 
 	if !mark {
 		return
