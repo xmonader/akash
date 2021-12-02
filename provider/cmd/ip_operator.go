@@ -304,32 +304,35 @@ func (op *ipOperator) prepareIgnoredLeases(pd *preparedResult) error {
 
 func (op *ipOperator) prepareState(pd *preparedResult) error {
 
-	results := make(map[string]interface{})
+	results := make(map[string][]interface{})
 	for _, managedIpEntry := range op.state {
 		leaseID := managedIpEntry.presentLease
 
-		k := getStateKey(leaseID, managedIpEntry.presentSharingKey, managedIpEntry.presentExternalPort)
 
 		// TODO - add the resource name in kubernetes, for diagnostic reasons
 		result := struct{
-			LastEventTime string `json:"last-event-time,omitempty"`
-			LeaseID      mtypes.LeaseID
-			Namespace    string // diagnostic only
-			Port uint32
-			ExternalPort uint32
-			ServiceName  string
-			LastUpdate   string
+			LastChangeTime string `json:"last-event-time,omitempty"`
+			LeaseID      mtypes.LeaseID `json:"lease-id"`
+			Namespace    string `json:"namespace"` // diagnostic only
+			Port uint32 `json:"port"`
+			ExternalPort uint32 `json:"external-port"`
+			ServiceName  string `json:"service-name"`
+			LastUpdate   string `json:"last-update"`
+			SharingKey string `json:"sharing-key"`
 		}{
-
 			LeaseID:      leaseID,
 			Namespace:    clusterutil.LeaseIDToNamespace(leaseID),
 			Port:         managedIpEntry.presentPort,
 			ExternalPort: managedIpEntry.presentExternalPort,
 			ServiceName:  managedIpEntry.presentServiceName,
 			LastUpdate:   managedIpEntry.lastChangedAt.String(),
+			SharingKey: managedIpEntry.presentSharingKey,
+			LastChangeTime: managedIpEntry.lastChangedAt.String(),
 		}
 
-		results[k] = result
+		entryList := results[leaseID.String()]
+		entryList = append(entryList, result)
+		results[leaseID.String()] = entryList
 	}
 
 	buf := &bytes.Buffer{}
