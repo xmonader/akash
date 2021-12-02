@@ -22,6 +22,13 @@ import (
 	"time"
 )
 
+
+type ipReservationRequest struct {
+	LeaseID mtypes.LeaseID
+	Quantity uint
+}
+
+
 type managedIp struct {
 	presentLease mtypes.LeaseID
 	presentServiceName string
@@ -46,6 +53,8 @@ type ipOperator struct {
 
 	kube kubernetes.Interface
 	mllbc metallb.Client
+
+	reservations map[string]ipReservationRequest
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -276,7 +285,6 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		err = op.client.CreateIPPassthrough(ctx, leaseID, directive)
 	}
 
-
 	if err == nil { // Update stored entry if everything went OK
 		entry.presentServiceName = ev.GetServiceName()
 		entry.presentLease = leaseID
@@ -287,6 +295,14 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		entry.lastChangedAt = time.Now()
 		op.state[uid] = entry
 		op.flagState()
+
+		reservationEntry := op.reservations[leaseID.String()]
+		if 0 == reservationEntry.Quantity {
+			op.log.Info("no reservation for IP", "leaseID", leaseID)
+		} else {
+			reservationEntry.Quantity--
+			op.reservations[leaseID.String()] = reservationEntry
+		}
 	}
 
 	return err
@@ -317,7 +333,6 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 			Port uint32 `json:"port"`
 			ExternalPort uint32 `json:"external-port"`
 			ServiceName  string `json:"service-name"`
-			LastUpdate   string `json:"last-update"`
 			SharingKey string `json:"sharing-key"`
 		}{
 			LeaseID:      leaseID,
@@ -325,9 +340,8 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 			Port:         managedIpEntry.presentPort,
 			ExternalPort: managedIpEntry.presentExternalPort,
 			ServiceName:  managedIpEntry.presentServiceName,
-			LastUpdate:   managedIpEntry.lastChangedAt.String(),
 			SharingKey: managedIpEntry.presentSharingKey,
-			LastChangeTime: managedIpEntry.lastChangedAt.String(),
+			LastChangeTime: managedIpEntry.lastChangedAt.UTC().String(),
 		}
 
 		entryList := results[leaseID.String()]
@@ -346,12 +360,54 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 	return nil
 }
 
-type ipInventory struct {
-	addressesInUse uint
+
+func handleReservationPut(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(req.Body)
+	var reservationRequest ipReservationRequest
+	err := decoder.Decode(&reservationRequest)
+	if err != nil {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if reservationRequest.Quantity == 0 {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	reserved, err := op.addReservation(reservationRequest.LeaseID, reservationRequest.Quantity)
+	if err != nil {
+		op.log.Error("could not make reservation", "leaseID", reservationRequest.LeaseID, "quantity", reservationRequest.Quantity, "error", err)
+	}
+
+	enc := json.NewEncoder(rw)
+	err = enc.Encode(reserved)
+	if err != nil {
+		op.log.Error("could not write reservation response", "error", err)
+	}
 }
 
-func (ipi *ipInventory) refresh() error {
-	return nil
+func handleReservationGet(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
+	rw.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(rw)
+	result := make(map[string]interface{})
+	for _, entry := range op.reservations {
+		result[entry.LeaseID.String()] = struct {
+			LeaseID mtypes.LeaseID `json:"lease-id"`
+			Quantity uint `json:"quantity"`
+		}{
+			LeaseID: entry.LeaseID,
+			Quantity: entry.Quantity,
+		}
+	}
+	err := encoder.Encode(result)
+
+	if err != nil {
+		op.log.Error("could not write reservations response", "error", err)
+		// Already wrote the header, so just bail
+		return
+	}
 }
 
 func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client) (*ipOperator) {
@@ -367,15 +423,42 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
 	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
 
-
 	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
-
 		clientID := req.Header.Get("X-Client-Id")
 		_ = clientID
 
 		// TODO - add auth based off TokenReview via k8s interface
+		if req.Method == http.MethodPut {
+			handleReservationPut(retval, rw, req)
+		} else {
+			handleReservationGet(retval, rw, req)
+		}
+
+
 	}).Methods(http.MethodGet, http.MethodPut)
 	return retval
+}
+
+func (op *ipOperator) addReservation(lID mtypes.LeaseID, quantity uint) (bool, error) {
+	qtyReserved := uint(0)
+	available := op.available
+	for _, entry := range op.reservations {
+		qtyReserved += entry.Quantity
+		if entry.LeaseID == lID {
+			available += entry.Quantity
+		}
+	}
+
+	if quantity > (available - op.inUse - qtyReserved) {
+		return false, nil
+	}
+
+	op.reservations[lID.String()] = ipReservationRequest{
+		LeaseID:  lID,
+		Quantity: quantity,
+	}
+
+	return true, nil
 }
 
 func doIPOperator(cmd *cobra.Command) error {
