@@ -409,6 +409,17 @@ loop:
 
 			err := inventory.Adjust(reservation)
 			if err == nil {
+				endpoints := make(map[uint32]struct{})
+				for _, resource := range resourcesToCommit.GetResources() {
+					for _, endpoint := range resource.Resources.Endpoints {
+						endpoints[endpoint.SequenceNumber] = struct{}{}
+					}
+				}
+
+				if len(endpoints) != 0 {
+					// TODO Ask operator for a reservation
+				}
+
 				reservations = append(reservations, reservation)
 				req.ch <- inventoryResponse{value: reservation}
 				inventoryRequestsCounter.WithLabelValues("reserve", "create").Inc()

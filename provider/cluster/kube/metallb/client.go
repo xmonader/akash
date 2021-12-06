@@ -99,6 +99,7 @@ func NewClient(configPath string, logger log.Logger) (Client, error){
 		ForceAttemptHTTP2:      false,
 	}
 
+	// TODO - if the pod is rebooted, do we need to rediscover this?
 	_, addrs, err := net.LookupSRV("monitoring","tcp", serviceHostName)
 	if err != nil {
 		return nil, err

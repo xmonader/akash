@@ -22,10 +22,15 @@ import (
 	"time"
 )
 
+var (
+	errIpOperator = errors.New("ip operator error")
+	errNoSuchReservation = fmt.Errorf("%w: no such reservation with that lease ID", errIpOperator)
+)
 
 type ipReservationRequest struct {
 	LeaseID mtypes.LeaseID
 	Quantity uint
+	QuantityAllocated uint
 }
 
 
@@ -300,7 +305,8 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		if 0 == reservationEntry.Quantity {
 			op.log.Info("no reservation for IP", "leaseID", leaseID)
 		} else {
-			reservationEntry.Quantity--
+			reservationEntry.QuantityAllocated++
+			// TODO - bounds check this to make sure we don't somehow go over ?!
 			op.reservations[leaseID.String()] = reservationEntry
 		}
 	}
@@ -361,25 +367,30 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 }
 
 
-func handleReservationPut(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
+func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
 	var reservationRequest ipReservationRequest
 	err := decoder.Decode(&reservationRequest)
 	if err != nil {
+		// TODO - log error
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	if reservationRequest.Quantity == 0 {
+		// TODO - log error
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	rw.WriteHeader(http.StatusOK)
 	reserved, err := op.addReservation(reservationRequest.LeaseID, reservationRequest.Quantity)
 	if err != nil {
+		rw.WriteHeader(http.StatusInternalServerError)
 		op.log.Error("could not make reservation", "leaseID", reservationRequest.LeaseID, "quantity", reservationRequest.Quantity, "error", err)
+		return
 	}
+
+	rw.WriteHeader(http.StatusOK)
 
 	enc := json.NewEncoder(rw)
 	err = enc.Encode(reserved)
@@ -388,17 +399,21 @@ func handleReservationPut(op *ipOperator, rw http.ResponseWriter, req *http.Requ
 	}
 }
 
-func handleReservationGet(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
+func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 	encoder := json.NewEncoder(rw)
 	result := make(map[string]interface{})
+
+	// TODO - use a lock around this
 	for _, entry := range op.reservations {
 		result[entry.LeaseID.String()] = struct {
 			LeaseID mtypes.LeaseID `json:"lease-id"`
 			Quantity uint `json:"quantity"`
+			QuantityAllocated uint `json:"quantity-allocated"`
 		}{
 			LeaseID: entry.LeaseID,
 			Quantity: entry.Quantity,
+			QuantityAllocated: entry.QuantityAllocated,
 		}
 	}
 	err := encoder.Encode(result)
@@ -408,6 +423,50 @@ func handleReservationGet(op *ipOperator, rw http.ResponseWriter, req *http.Requ
 		// Already wrote the header, so just bail
 		return
 	}
+}
+
+type ipReservationDelete struct {
+	LeaseID mtypes.LeaseID
+}
+
+func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.Request){
+	decoder := json.NewDecoder(req.Body)
+	var deleteRequest ipReservationDelete
+	err := decoder.Decode(&deleteRequest)
+
+	if err != nil {
+		// TODO - log error
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err = op.removeReservation(deleteRequest.LeaseID)
+	if err == nil {
+		rw.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if err == errNoSuchReservation {
+		// TODO - log that this couldn't be deleted
+		rw.WriteHeader(http.StatusBadRequest)
+		// TODO - body message indicating this couldn't be found
+		return
+	}
+
+	// TODO - log error
+	rw.WriteHeader(http.StatusInternalServerError)
+	return
+}
+
+func (op *ipOperator) removeReservation(leaseID mtypes.LeaseID) error {
+	// TODO - use a lock
+	_, exists := op.reservations[leaseID.String()]
+	if !exists {
+		return errNoSuchReservation
+	}
+
+	delete(op.reservations, leaseID.String())
+	return nil
 }
 
 func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client) (*ipOperator) {
@@ -428,27 +487,35 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		_ = clientID
 
 		// TODO - add auth based off TokenReview via k8s interface
-		if req.Method == http.MethodPut {
-			handleReservationPut(retval, rw, req)
+		if req.Method == http.MethodPost {
+			handleReservationPost(retval, rw, req)
+		} else if req.Method == http.MethodDelete {
+			handleReservationDelete(retval, rw, req)
 		} else {
 			handleReservationGet(retval, rw, req)
 		}
 
 
-	}).Methods(http.MethodGet, http.MethodPut)
+	}).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
 	return retval
 }
 
 func (op *ipOperator) addReservation(lID mtypes.LeaseID, quantity uint) (bool, error) {
+	// TODO - use a lock
 	qtyReserved := uint(0)
 	available := op.available
 	for _, entry := range op.reservations {
+		// Add the amount normally reserved
 		qtyReserved += entry.Quantity
+		// But take out the amount actually allocated
+		qtyReserved -= entry.QuantityAllocated
+
 		if entry.LeaseID == lID {
 			available += entry.Quantity
 		}
 	}
 
+	// TODO - refresh inUse beforehand  ?
 	if quantity > (available - op.inUse - qtyReserved) {
 		return false, nil
 	}
