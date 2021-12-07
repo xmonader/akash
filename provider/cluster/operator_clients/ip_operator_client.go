@@ -11,6 +11,7 @@ import (
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	"github.com/ovrclk/akash/util/runner"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
+	"github.com/tendermint/tendermint/libs/log"
 	"io"
 	"math/rand"
 	"net"
@@ -23,17 +24,11 @@ var (
 	ErrShuttingDown = errors.New("shutting down")
 )
 
-
-type IPAddressUsage struct {
-	Available uint
-	Reserver uint
-	InUse uint
-}
-
 type IPOperatorClient interface{
-	GetIPAddressUsage(ctx context.Context) (IPAddressUsage, error)
-	ReserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID, quantity uint) error
-	UnreserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID) error
+	GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error)
+	ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error)
+	UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error
+	Stop(ctx context.Context) error
 }
 
 
@@ -43,21 +38,25 @@ func NullClient() IPOperatorClient {
 	return ipOperatorNullClient{}
 }
 
-func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (IPAddressUsage, error) {
-	return IPAddressUsage{}, errNotImplemented
+func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error) {
+	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
 
 
-func (_ ipOperatorNullClient) ReserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID, quantity uint) (error) {
+func (_ ipOperatorNullClient) ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error) {
+	return false, errNotImplemented
+}
+
+func (_ ipOperatorNullClient) UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error {
 	return errNotImplemented
 }
 
-func (_ ipOperatorNullClient) UnreserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID) error {
-	return errNotImplemented
+func (_ ipOperatorNullClient) Stop(ctx context.Context) error {
+	return nil
 }
 
 
-func NewServiceDiscoveryAgent(portName, serviceName, namespace, protocol string) *ServiceDiscoveryAgent {
+func NewServiceDiscoveryAgent(logger log.Logger, portName, serviceName, namespace, protocol string) *ServiceDiscoveryAgent {
 	sda := &ServiceDiscoveryAgent{
 		serviceName:     serviceName,
 		namespace:       namespace,
@@ -68,6 +67,7 @@ func NewServiceDiscoveryAgent(portName, serviceName, namespace, protocol string)
 		requests:        make(chan serviceDiscoveryRequest),
 		pendingRequests: nil,
 		result:          nil,
+		log: logger.With("cmp","service-discovery-agent"),
 	}
 
 	go sda.run()
@@ -87,6 +87,7 @@ type ServiceDiscoveryAgent struct {
 	requests chan serviceDiscoveryRequest
 	pendingRequests []serviceDiscoveryRequest
 	result []net.SRV
+	log log.Logger
 }
 
 type serviceDiscoveryRequest struct {
@@ -94,8 +95,8 @@ type serviceDiscoveryRequest struct {
 	resultCh chan <- []net.SRV
 }
 
-func (sda *ServiceDiscoveryAgent) Stop(ctx context.Context, err error) error {
-	sda.lc.Shutdown(err)
+func (sda *ServiceDiscoveryAgent) Stop(ctx context.Context) error {
+	sda.lc.Shutdown(nil)
 
 	select {
 	case <-sda.lc.Done():
@@ -145,7 +146,7 @@ func (sda *ServiceDiscoveryAgent) run(){
 			addrs = (result.Value()).([]net.SRV)
 			sda.setResult(addrs, nil)
 		case req := <- sda.requests:
-			sda.handleRequest( req)
+			sda.handleRequest(req)
 		}
 
 		if discover && discoveryResult == nil{
@@ -226,6 +227,7 @@ func (sda *ServiceDiscoveryAgent) GetAddresss(ctx context.Context) (net.SRV, err
 func (sda *ServiceDiscoveryAgent) discover() ([]net.SRV, error){
 	_, addrs, err := net.LookupSRV(sda.portName, sda.portProtocol, fmt.Sprintf("%s.%s.svc.cluster.local", sda.serviceName, sda.namespace))
 	if err != nil {
+		sda.log.Error("discovery failed","error", err, "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
 		return nil, err
 	}
 
@@ -234,14 +236,15 @@ func (sda *ServiceDiscoveryAgent) discover() ([]net.SRV, error){
 	for i, addr := range addrs {
 		result[i] = *addr
 	}
+	sda.log.Info("discovery success", "addrs", result,  "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
 
 	return result, nil
 }
 
 
 
-func NewIPOperatorClient() (IPOperatorClient, error) {
-	sda := NewServiceDiscoveryAgent("api", "ip-operator", "akash-services", "tcp")
+func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
+	sda := NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp")
 
 	const requestTimeout = time.Second * 30 // TODO - configurable
 	dialer := net.Dialer{
@@ -285,11 +288,12 @@ func NewIPOperatorClient() (IPOperatorClient, error) {
 			Jar:           nil,
 			Timeout:       requestTimeout,
 		},
+		log: logger.With("operator","ip"),
 	}, nil
 }
 
-func (ipoc ipOperatorClient) Stop(ctx context.Context, err error) error {
-	return ipoc.sda.Stop(ctx, err)
+func (ipoc ipOperatorClient) Stop(ctx context.Context) error {
+	return ipoc.sda.Stop(ctx)
 }
 
 const (
@@ -300,6 +304,7 @@ const (
 type ipOperatorClient struct {
 	sda *ServiceDiscoveryAgent
 	httpClient *http.Client
+	log log.Logger
 }
 
 func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, path string, body io.Reader) (*http.Request, error) {
@@ -311,38 +316,46 @@ func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, pat
 	return http.NewRequest(method, remoteURL, body)
 }
 
-func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (IPAddressUsage, error) {
-	return IPAddressUsage{}, errNotImplemented
+func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error) {
+	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
 
-
-func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID, quantity uint) (error) {
+func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error) {
 	reqBody := ipoptypes.IPReservationRequest{
-		LeaseID:  leaseID,
+		OrderID:  orderID,
 		Quantity: quantity,
 	}
 	buf := &bytes.Buffer{}
 	encoder := json.NewEncoder(buf)
 	err := encoder.Encode(reqBody)
 	if err != nil {
-		return err
+		return false, err
 	}
 	req, err := ipoc.newRequest(ctx, http.MethodPost, ipOperatorReservationsPath, buf)
 	if err != nil {
-		return err
+		return false, err
 	}
 
+	ipoc.log.Info("making IP reservation HTTP request", "method", req.Method, "url", req.URL)
 	response, err := ipoc.httpClient.Do(req)
 	if err != nil {
+		ipoc.log.Error("http request failed", "err", err)
 		ipoc.sda.DiscoverNow()
-		return err
+		return false, err
 	}
 
-	if response.StatusCode != http.StatusNoContent {
-		return  extractRemoteError(response.Body)
+	if response.StatusCode != http.StatusOK {
+		return false, extractRemoteError(response.Body)
 	}
 
-	return nil
+	reserved := false
+	dec := json.NewDecoder(response.Body)
+	err = dec.Decode(&reserved)
+	if err != nil {
+		return false, err
+	}
+
+	return reserved, nil
 }
 
 func extractRemoteError(reader io.Reader) error{
@@ -364,9 +377,9 @@ func extractRemoteError(reader io.Reader) error{
 	return errors.New(body.Error)
 }
 
-func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID) error {
+func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error {
 	reqBody := ipoptypes.IPReservationDelete{
-		LeaseID: leaseID,
+		OrderID: orderID,
 	}
 
 	buf := &bytes.Buffer{}
@@ -375,13 +388,16 @@ func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, leaseID mt
 	if err != nil {
 		return err
 	}
+
 	req, err := ipoc.newRequest(ctx, http.MethodDelete, ipOperatorReservationsPath, buf)
 	if err != nil {
 		return err
 	}
 
+	ipoc.log.Info("making IP unreservation HTTP request", "method", req.Method, "url", req.URL)
 	response, err := ipoc.httpClient.Do(req)
 	if err != nil {
+		ipoc.log.Error("http request failed", "err", err)
 		ipoc.sda.DiscoverNow()
 		return err
 	}

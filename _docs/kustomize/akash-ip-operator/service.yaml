@@ -6,5 +6,5 @@ spec:
   selector:
     akash.network/component: akash-ip-operator
   ports:
-    - name: status
+    - name: api
       port: 8086

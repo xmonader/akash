@@ -5,5 +5,5 @@ import (
 )
 
 type IPReservationDelete struct {
-	LeaseID mtypes.LeaseID
+	OrderID mtypes.OrderID
 }

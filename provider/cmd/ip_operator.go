@@ -35,7 +35,7 @@ type managedIp struct {
 }
 
 type ipReservationEntry struct {
-	LeaseID mtypes.LeaseID
+	OrderID mtypes.OrderID
 	Quantity uint
 	QuantityAllocated uint
 }
@@ -377,14 +377,14 @@ func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Req
 		return
 	}
 
-	reserved, err := op.addReservation(reservationRequest.LeaseID, reservationRequest.Quantity)
+	reserved, err := op.addReservation(reservationRequest.OrderID, reservationRequest.Quantity)
 	if err != nil {
-		op.log.Error("could not make reservation", "leaseID", reservationRequest.LeaseID, "quantity", reservationRequest.Quantity, "error", err)
+		op.log.Error("could not make reservation", "leaseID", reservationRequest.OrderID, "quantity", reservationRequest.Quantity, "error", err)
 		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
 		return
 	}
 
-	rw.WriteHeader(http.StatusNoContent)
+	rw.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(rw)
 	err = enc.Encode(reserved)
 	if err != nil {
@@ -399,12 +399,12 @@ func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Reques
 
 	// TODO - use a lock around this
 	for _, entry := range op.reservations {
-		result[entry.LeaseID.String()] = struct {
-			LeaseID mtypes.LeaseID `json:"lease-id"`
+		result[entry.OrderID.String()] = struct {
+			OrderID mtypes.OrderID `json:"order-id"`
 			Quantity uint `json:"quantity"`
 			QuantityAllocated uint `json:"quantity-allocated"`
 		}{
-			LeaseID: entry.LeaseID,
+			OrderID: entry.OrderID,
 			Quantity: entry.Quantity,
 			QuantityAllocated: entry.QuantityAllocated,
 		}
@@ -450,7 +450,7 @@ func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.R
 		return
 	}
 
-	err = op.removeReservation(deleteRequest.LeaseID)
+	err = op.removeReservation(deleteRequest.OrderID)
 	if err == nil {
 		handleHttpError(op, rw, req, err, http.StatusNoContent)
 		return
@@ -465,14 +465,14 @@ func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.R
 	return
 }
 
-func (op *ipOperator) removeReservation(leaseID mtypes.LeaseID) error {
+func (op *ipOperator) removeReservation(orderID mtypes.OrderID) error {
 	// TODO - use a lock
-	_, exists := op.reservations[leaseID.String()]
+	_, exists := op.reservations[orderID.String()]
 	if !exists {
 		return ipoptypes.ErrNoSuchReservation
 	}
 
-	delete(op.reservations, leaseID.String())
+	delete(op.reservations, orderID.String())
 	return nil
 }
 
@@ -484,6 +484,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		server: newOperatorHttp(),
 		leasesIgnored: newIgnoreList(ilc),
 		mllbc: mllbc,
+		reservations: make(map[string]ipReservationEntry),
 	}
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
@@ -507,7 +508,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 	return retval
 }
 
-func (op *ipOperator) addReservation(lID mtypes.LeaseID, quantity uint) (bool, error) {
+func (op *ipOperator) addReservation(orderID mtypes.OrderID, quantity uint) (bool, error) {
 	// TODO - use a lock
 	qtyReserved := uint(0)
 	available := op.available
@@ -517,7 +518,7 @@ func (op *ipOperator) addReservation(lID mtypes.LeaseID, quantity uint) (bool, e
 		// But take out the amount actually allocated
 		qtyReserved -= entry.QuantityAllocated
 
-		if entry.LeaseID == lID {
+		if entry.OrderID == orderID {
 			available += entry.Quantity
 		}
 	}
@@ -527,8 +528,8 @@ func (op *ipOperator) addReservation(lID mtypes.LeaseID, quantity uint) (bool, e
 		return false, nil
 	}
 
-	op.reservations[lID.String()] = ipReservationEntry{
-		LeaseID:  lID,
+	op.reservations[orderID.String()] = ipReservationEntry{
+		OrderID:  orderID,
 		Quantity: quantity,
 	}
 
