@@ -20,19 +20,9 @@ import (
 	"net/http"
 
 	"time"
+
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 )
-
-var (
-	errIpOperator = errors.New("ip operator error")
-	errNoSuchReservation = fmt.Errorf("%w: no such reservation with that lease ID", errIpOperator)
-)
-
-type ipReservationRequest struct {
-	LeaseID mtypes.LeaseID
-	Quantity uint
-	QuantityAllocated uint
-}
-
 
 type managedIp struct {
 	presentLease mtypes.LeaseID
@@ -42,6 +32,12 @@ type managedIp struct {
 	presentExternalPort uint32
 	presentPort uint32
 	lastChangedAt time.Time
+}
+
+type ipReservationEntry struct {
+	LeaseID mtypes.LeaseID
+	Quantity uint
+	QuantityAllocated uint
 }
 
 type ipOperator struct {
@@ -59,7 +55,7 @@ type ipOperator struct {
 	kube kubernetes.Interface
 	mllbc metallb.Client
 
-	reservations map[string]ipReservationRequest
+	reservations map[string]ipReservationEntry
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -369,29 +365,26 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 
 func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
-	var reservationRequest ipReservationRequest
+	var reservationRequest ipoptypes.IPReservationRequest
 	err := decoder.Decode(&reservationRequest)
 	if err != nil {
-		// TODO - log error
-		rw.WriteHeader(http.StatusBadRequest)
+		handleHttpError(op, rw, req, err, http.StatusBadRequest)
 		return
 	}
 
 	if reservationRequest.Quantity == 0 {
-		// TODO - log error
-		rw.WriteHeader(http.StatusBadRequest)
+		handleHttpError(op, rw, req, ipoptypes.ErrReservationQuantityCannotBeZero, http.StatusBadRequest)
 		return
 	}
 
 	reserved, err := op.addReservation(reservationRequest.LeaseID, reservationRequest.Quantity)
 	if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
 		op.log.Error("could not make reservation", "leaseID", reservationRequest.LeaseID, "quantity", reservationRequest.Quantity, "error", err)
+		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
 		return
 	}
 
-	rw.WriteHeader(http.StatusOK)
-
+	rw.WriteHeader(http.StatusNoContent)
 	enc := json.NewEncoder(rw)
 	err = enc.Encode(reserved)
 	if err != nil {
@@ -425,36 +418,50 @@ func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Reques
 	}
 }
 
-type ipReservationDelete struct {
-	LeaseID mtypes.LeaseID
+
+func handleHttpError(op *ipOperator, rw http.ResponseWriter, req *http.Request, err error, status int){
+	op.log.Error("http request processing failed", "method", req.Method, "path", req.URL.Path, "err", err)
+	rw.WriteHeader(status)
+
+	body := ipoptypes.IPOperatorErrorResponse{
+		Error: err.Error(),
+		Code: -1,
+	}
+
+	if errors.Is(err, ipoptypes.ErrIPOperator) {
+		code := err.(ipoptypes.IPOperatorError).GetCode()
+		body.Code = code
+	}
+
+	encoder := json.NewEncoder(rw)
+	err = encoder.Encode(body)
+	if err != nil {
+		op.log.Error("failed writing response body", "err", err)
+	}
 }
 
 func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.Request){
 	decoder := json.NewDecoder(req.Body)
-	var deleteRequest ipReservationDelete
+	var deleteRequest ipoptypes.IPReservationDelete
 	err := decoder.Decode(&deleteRequest)
 
 	if err != nil {
-		// TODO - log error
-		rw.WriteHeader(http.StatusBadRequest)
+		handleHttpError(op, rw, req, err, http.StatusBadRequest)
 		return
 	}
 
 	err = op.removeReservation(deleteRequest.LeaseID)
 	if err == nil {
-		rw.WriteHeader(http.StatusNoContent)
+		handleHttpError(op, rw, req, err, http.StatusNoContent)
 		return
 	}
 
-	if err == errNoSuchReservation {
-		// TODO - log that this couldn't be deleted
-		rw.WriteHeader(http.StatusBadRequest)
-		// TODO - body message indicating this couldn't be found
+	if errors.Is(err, ipoptypes.ErrNoSuchReservation) {
+		handleHttpError(op, rw, req, err, http.StatusBadRequest)
 		return
 	}
 
-	// TODO - log error
-	rw.WriteHeader(http.StatusInternalServerError)
+	handleHttpError(op, rw, req, err, http.StatusInternalServerError)
 	return
 }
 
@@ -462,7 +469,7 @@ func (op *ipOperator) removeReservation(leaseID mtypes.LeaseID) error {
 	// TODO - use a lock
 	_, exists := op.reservations[leaseID.String()]
 	if !exists {
-		return errNoSuchReservation
+		return ipoptypes.ErrNoSuchReservation
 	}
 
 	delete(op.reservations, leaseID.String())
@@ -520,7 +527,7 @@ func (op *ipOperator) addReservation(lID mtypes.LeaseID, quantity uint) (bool, e
 		return false, nil
 	}
 
-	op.reservations[lID.String()] = ipReservationRequest{
+	op.reservations[lID.String()] = ipReservationEntry{
 		LeaseID:  lID,
 		Quantity: quantity,
 	}

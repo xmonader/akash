@@ -65,7 +65,6 @@ func NewClient(configPath string, logger log.Logger) (Client, error){
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
 	}
 
-
 	dialer := net.Dialer{
 		Timeout:       metricsTimeout,
 		Deadline:      time.Time{},

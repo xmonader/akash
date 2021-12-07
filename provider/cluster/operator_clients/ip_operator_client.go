@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/boz/go-lifecycle"
 	"github.com/desertbit/timer"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	"github.com/ovrclk/akash/util/runner"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"io"
@@ -91,6 +92,18 @@ type ServiceDiscoveryAgent struct {
 type serviceDiscoveryRequest struct {
 	errCh chan <- error
 	resultCh chan <- []net.SRV
+}
+
+func (sda *ServiceDiscoveryAgent) Stop(ctx context.Context, err error) error {
+	sda.lc.Shutdown(err)
+
+	select {
+	case <-sda.lc.Done():
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	return nil
 }
 
 func (sda *ServiceDiscoveryAgent) DiscoverNow() {
@@ -225,12 +238,58 @@ func (sda *ServiceDiscoveryAgent) discover() ([]net.SRV, error){
 	return result, nil
 }
 
+
+
 func NewIPOperatorClient() (IPOperatorClient, error) {
 	sda := NewServiceDiscoveryAgent("api", "ip-operator", "akash-services", "tcp")
 
+	const requestTimeout = time.Second * 30 // TODO - configurable
+	dialer := net.Dialer{
+		Timeout:       requestTimeout,
+		Deadline:      time.Time{},
+		LocalAddr:     nil,
+		FallbackDelay: 0,
+		KeepAlive:     0,
+		Resolver:      nil,
+		Control:       nil,
+	}
+
+	transport := &http.Transport{
+		Proxy:                  nil,
+		DialContext:            dialer.DialContext,
+		DialTLSContext:         nil,
+		TLSClientConfig:        nil,
+		TLSHandshakeTimeout:    0,
+		DisableKeepAlives:      false,
+		DisableCompression:     true,
+		MaxIdleConns:           1,
+		MaxIdleConnsPerHost:    1,
+		MaxConnsPerHost:        1,
+		IdleConnTimeout:        0,
+		ResponseHeaderTimeout:  requestTimeout,
+		ExpectContinueTimeout:  requestTimeout,
+		TLSNextProto:           nil,
+		ProxyConnectHeader:     nil,
+		GetProxyConnectHeader:  nil,
+		MaxResponseHeaderBytes: 0,
+		WriteBufferSize:        0,
+		ReadBufferSize:         0,
+		ForceAttemptHTTP2:      false,
+	}
+
 	return &ipOperatorClient{
 		sda: sda,
+		httpClient: &http.Client{
+			Transport:     transport,
+			CheckRedirect: nil,
+			Jar:           nil,
+			Timeout:       requestTimeout,
+		},
 	}, nil
+}
+
+func (ipoc ipOperatorClient) Stop(ctx context.Context, err error) error {
+	return ipoc.sda.Stop(ctx, err)
 }
 
 const (
@@ -243,12 +302,12 @@ type ipOperatorClient struct {
 	httpClient *http.Client
 }
 
-func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, body io.Reader) (*http.Request, error) {
+func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, path string, body io.Reader) (*http.Request, error) {
 	addr, err := ipoc.sda.GetAddresss(ctx)
 	if err != nil {
 		return nil, err
 	}
-	remoteURL := fmt.Sprintf("http://%s:%d", addr.Target, addr.Port)
+	remoteURL := fmt.Sprintf("http://%s:%d%s", addr.Target, addr.Port, path)
 	return http.NewRequest(method, remoteURL, body)
 }
 
@@ -258,14 +317,17 @@ func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (IPAddressU
 
 
 func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID, quantity uint) (error) {
-	var reqBody uint // TODO - make me a shared type
+	reqBody := ipoptypes.IPReservationRequest{
+		LeaseID:  leaseID,
+		Quantity: quantity,
+	}
 	buf := &bytes.Buffer{}
 	encoder := json.NewEncoder(buf)
 	err := encoder.Encode(reqBody)
 	if err != nil {
 		return err
 	}
-	req, err := ipoc.newRequest(ctx, http.MethodPost, buf)
+	req, err := ipoc.newRequest(ctx, http.MethodPost, ipOperatorReservationsPath, buf)
 	if err != nil {
 		return err
 	}
@@ -276,17 +338,57 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, leaseID mtyp
 		return err
 	}
 
-	if response.StatusCode != http.StatusOK {
-		// TODO - parse & return an error body here
-		panic("bob")
+	if response.StatusCode != http.StatusNoContent {
+		return  extractRemoteError(response.Body)
 	}
 
-
-
 	return nil
+}
 
+func extractRemoteError(reader io.Reader) error{
+	body := ipoptypes.IPOperatorErrorResponse{}
+	decoder := json.NewDecoder(reader)
+	err := decoder.Decode(&body)
+	if err != nil {
+		return err
+	}
+
+	if 0 == len(body.Error) {
+		return io.EOF
+	}
+
+	if body.Code > 0 {
+		return ipoptypes.LookupError(body.Code)
+	}
+
+	return errors.New(body.Error)
 }
 
 func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, leaseID mtypes.LeaseID) error {
-	return errNotImplemented
+	reqBody := ipoptypes.IPReservationDelete{
+		LeaseID: leaseID,
+	}
+
+	buf := &bytes.Buffer{}
+	encoder := json.NewEncoder(buf)
+	err := encoder.Encode(reqBody)
+	if err != nil {
+		return err
+	}
+	req, err := ipoc.newRequest(ctx, http.MethodDelete, ipOperatorReservationsPath, buf)
+	if err != nil {
+		return err
+	}
+
+	response, err := ipoc.httpClient.Do(req)
+	if err != nil {
+		ipoc.sda.DiscoverNow()
+		return err
+	}
+
+	if response.StatusCode != http.StatusNoContent {
+		return  extractRemoteError(response.Body)
+	}
+
+	return nil
 }
