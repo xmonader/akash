@@ -372,7 +372,7 @@ func (is *inventoryService) handleRequest(req inventoryRequest, state *inventory
 			}
 
 			if !reserved {
-				// TODO - cancel the reservation request
+				// TODO - cancel the reservation request entirely
 			}
 		}
 
