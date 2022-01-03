@@ -403,7 +403,7 @@ func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mt
 	}
 
 	if response.StatusCode != http.StatusNoContent {
-		return  extractRemoteError(response.Body)
+		return extractRemoteError(response.Body)
 	}
 
 	return nil

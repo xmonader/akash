@@ -423,6 +423,7 @@ func (sdl *v2) validate() error {
 		if len(endpoint.Kind) == 0 {
 			return fmt.Errorf("%w: endpoint named %q has no kind", errSDLInvalid, endpointName)
 		}
+		// TODO - check that endpoint kind is valid
 	}
 
 	// TODO - check for endpoints declared but not used

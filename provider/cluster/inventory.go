@@ -353,38 +353,33 @@ func (is *inventoryService) handleRequest(req inventoryRequest, state *inventory
 	is.log.Debug("reservation requested", "order", req.order, "resources", req.resources)
 
 	err := state.inventory.Adjust(reservation)
-	if err == nil {
-		endpoints := make(map[uint32]struct{})
-		for _, resource := range resourcesToCommit.GetResources() {
-			for _, endpoint := range resource.Resources.Endpoints {
-				if endpoint.Kind == atypes.Endpoint_LEASED_IP {
-					endpoints[endpoint.SequenceNumber] = struct{}{}
-				}
-			}
-		}
 
-		if len(endpoints) != 0 {
-			// TODO - move this to its own goroutine
-			ctx := context.Background() // TODO - tie me to lifecycle
-			reserved, err := is.ipOperator.ReserveIPAddress(ctx, req.order, uint(len(endpoints)))
-			if err != nil {
-				req.ch <- inventoryResponse{err: err}
-			}
-
-			if !reserved {
-				// TODO - cancel the reservation request entirely
-			}
-		}
-
-		state.reservations = append(state.reservations, reservation)
-		req.ch <- inventoryResponse{value: reservation}
-		inventoryRequestsCounter.WithLabelValues("reserve", "create").Inc()
+	if err != nil {
+		is.log.Info("insufficient capacity for reservation", "order", req.order)
+		inventoryRequestsCounter.WithLabelValues("reserve", "insufficient-capacity").Inc()
+		req.ch <- inventoryResponse{err: err}
 		return
 	}
 
-	is.log.Info("insufficient capacity for reservation", "order", req.order)
-	inventoryRequestsCounter.WithLabelValues("reserve", "insufficient-capacity").Inc()
-	req.ch <- inventoryResponse{err: err}
+	if reservation.endpointQuantity != 0 {
+		// TODO - move this to its own goroutine
+		ctx := context.Background() // TODO - tie me to lifecycle
+		reserved, err := is.ipOperator.ReserveIPAddress(ctx, req.order, reservation.endpointQuantity)
+		if err != nil {
+			req.ch <- inventoryResponse{err: err}
+			return
+		}
+
+		if !reserved {
+			req.ch <- inventoryResponse{err: ctypes.ErrInsufficientCapacity}
+			return
+		}
+	}
+
+	// Add the reservation to the list
+	state.reservations = append(state.reservations, reservation)
+	req.ch <- inventoryResponse{value: reservation}
+	inventoryRequestsCounter.WithLabelValues("reserve", "create").Inc()
 
 }
 
@@ -503,6 +498,17 @@ loop:
 				// reclaim availableExternalPorts if unreserving allocated resources
 				if res.allocated {
 					is.availableExternalPorts += reservationCountEndpoints(res)
+				}
+
+				// reclaim leased IPs if specified
+				if res.endpointQuantity != 0 {
+					ctx := context.Background() // TODO - move to own goroutine & tie to this lifecycle
+					err := is.ipOperator.UnreserveIPAddress(ctx, req.order) // TODO - retries on error
+					if err != nil {
+						is.log.Error("failed unreserving endpoints", "err", "order-id", req.order)
+						req.ch <- inventoryResponse{err: err}
+						continue loop
+					}
 				}
 
 				req.ch <- inventoryResponse{value: res}

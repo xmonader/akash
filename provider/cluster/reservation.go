@@ -7,13 +7,23 @@ import (
 )
 
 func newReservation(order mtypes.OrderID, resources atypes.ResourceGroup) *reservation {
-	return &reservation{order: order, resources: resources}
+	endpoints := make(map[uint32]struct{})
+	for _, resource := range resources.GetResources() {
+		for _, endpoint := range resource.Resources.Endpoints {
+			if endpoint.Kind == atypes.Endpoint_LEASED_IP {
+				endpoints[endpoint.SequenceNumber] = struct{}{}
+			}
+		}
+	}
+
+	return &reservation{order: order, resources: resources, endpointQuantity: uint(len(endpoints))}
 }
 
 type reservation struct {
 	order     mtypes.OrderID
 	resources atypes.ResourceGroup
 	allocated bool
+	endpointQuantity uint
 }
 
 var _ ctypes.Reservation = (*reservation)(nil)

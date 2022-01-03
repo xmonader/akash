@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Needed for now because the hostport means the new pod can never start
+kubectl delete deployment -n akash-services akash-provider
+
 set -xe
 
 pushd ../../

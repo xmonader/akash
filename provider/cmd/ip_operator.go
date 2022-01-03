@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/kubernetes"
 	"net/http"
+	"sync"
 
 	"time"
 
@@ -55,7 +56,11 @@ type ipOperator struct {
 	kube kubernetes.Interface
 	mllbc metallb.Client
 
-	reservations map[string]ipReservationEntry
+	// TODO - is thig going to need to be persisted somehow?
+	// The provider would basically be 'confused' if this operator restarted
+	// and lost this data
+	reservations map[string]ipReservationEntry 
+	reservationsLock sync.Locker
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -384,6 +389,7 @@ func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Req
 		return
 	}
 
+	op.log.Info("added reservation", "order-id", reservationRequest.OrderID)
 	rw.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(rw)
 	err = enc.Encode(reserved)
@@ -392,12 +398,13 @@ func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Req
 	}
 }
 
-func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Request) {
-	rw.WriteHeader(http.StatusOK)
-	encoder := json.NewEncoder(rw)
+func (op *ipOperator) getReservationsCopy() (map[string]interface{}) {
+	// This method exists as a way to deep copy the data while holding the lock
+	// without blocking on anything external
+	op.reservationsLock.Lock()
+	defer op.reservationsLock.Unlock()
 	result := make(map[string]interface{})
 
-	// TODO - use a lock around this
 	for _, entry := range op.reservations {
 		result[entry.OrderID.String()] = struct {
 			OrderID mtypes.OrderID `json:"order-id"`
@@ -409,7 +416,13 @@ func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Reques
 			QuantityAllocated: entry.QuantityAllocated,
 		}
 	}
-	err := encoder.Encode(result)
+	return result
+}
+
+func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Request) {
+	rw.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(rw)
+	err := encoder.Encode(op.getReservationsCopy())
 
 	if err != nil {
 		op.log.Error("could not write reservations response", "error", err)
@@ -452,7 +465,8 @@ func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.R
 
 	err = op.removeReservation(deleteRequest.OrderID)
 	if err == nil {
-		handleHttpError(op, rw, req, err, http.StatusNoContent)
+		op.log.Info("removed reservation", "order-id", deleteRequest.OrderID)
+		rw.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -466,7 +480,9 @@ func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.R
 }
 
 func (op *ipOperator) removeReservation(orderID mtypes.OrderID) error {
-	// TODO - use a lock
+	op.reservationsLock.Lock()
+	defer op.reservationsLock.Unlock()
+
 	_, exists := op.reservations[orderID.String()]
 	if !exists {
 		return ipoptypes.ErrNoSuchReservation
@@ -485,6 +501,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		leasesIgnored: newIgnoreList(ilc),
 		mllbc: mllbc,
 		reservations: make(map[string]ipReservationEntry),
+		reservationsLock: &sync.Mutex{},
 	}
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
@@ -509,7 +526,9 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 }
 
 func (op *ipOperator) addReservation(orderID mtypes.OrderID, quantity uint) (bool, error) {
-	// TODO - use a lock
+	op.reservationsLock.Lock()
+	defer op.reservationsLock.Unlock()
+
 	qtyReserved := uint(0)
 	available := op.available
 	for _, entry := range op.reservations {
