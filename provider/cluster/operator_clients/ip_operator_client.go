@@ -6,14 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/boz/go-lifecycle"
-	"github.com/desertbit/timer"
+	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
-	"github.com/ovrclk/akash/util/runner"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/tendermint/tendermint/libs/log"
 	"io"
-	"math/rand"
 	"net"
 	"net/http"
 	"time"
@@ -21,7 +18,6 @@ import (
 
 var (
 	errNotImplemented = errors.New("not implemented")
-	ErrShuttingDown = errors.New("shutting down")
 )
 
 type IPOperatorClient interface{
@@ -56,195 +52,8 @@ func (_ ipOperatorNullClient) Stop(ctx context.Context) error {
 }
 
 
-func NewServiceDiscoveryAgent(logger log.Logger, portName, serviceName, namespace, protocol string) *ServiceDiscoveryAgent {
-	sda := &ServiceDiscoveryAgent{
-		serviceName:     serviceName,
-		namespace:       namespace,
-		portName:        portName,
-		portProtocol:    protocol,
-		lc:              lifecycle.New(),
-		discoverch:      make(chan struct{}, 1),
-		requests:        make(chan serviceDiscoveryRequest),
-		pendingRequests: nil,
-		result:          nil,
-		log: logger.With("cmp","service-discovery-agent"),
-	}
-
-	go sda.run()
-
-	return sda
-}
-
-type ServiceDiscoveryAgent struct {
-	serviceName string
-	namespace string
-	portName string
-	portProtocol string
-	lc lifecycle.Lifecycle
-
-	discoverch chan struct{}
-
-	requests chan serviceDiscoveryRequest
-	pendingRequests []serviceDiscoveryRequest
-	result []net.SRV
-	log log.Logger
-}
-
-type serviceDiscoveryRequest struct {
-	errCh chan <- error
-	resultCh chan <- []net.SRV
-}
-
-func (sda *ServiceDiscoveryAgent) Stop(ctx context.Context) error {
-	sda.lc.Shutdown(nil)
-
-	select {
-	case <-sda.lc.Done():
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	return nil
-}
-
-func (sda *ServiceDiscoveryAgent) DiscoverNow() {
-	select {
-	case sda.discoverch <- struct{}{}:
-	default:
-	}
-}
-
-func (sda *ServiceDiscoveryAgent) run(){
-	defer sda.lc.ShutdownCompleted()
-	addrs := make([]net.SRV, 0)
-
-	const retryInterval = time.Second * 2
-	retryTimer := timer.NewTimer(retryInterval)
-	retryTimer.Stop()
-	defer retryTimer.Stop()
-	var discoveryResult <- chan runner.Result
-
-	mainLoop:
-	for {
-		discover := len(addrs) == 0
-		select {
-		case <- sda.lc.ShutdownRequest():
-			break mainLoop
-		case <- sda.discoverch:
-			discover = true // Could be ignored if discoveryResult is not nil
-		case <- retryTimer.C:
-			retryTimer.Stop()
-			discover = true
-		case result := <- discoveryResult:
-			err := result.Error()
-			if err != nil {
-				sda.setResult(nil, err)
-				retryTimer.Reset(retryInterval)
-				break
-			}
-
-			addrs = (result.Value()).([]net.SRV)
-			sda.setResult(addrs, nil)
-		case req := <- sda.requests:
-			sda.handleRequest(req)
-		}
-
-		if discover && discoveryResult == nil{
-			discoveryResult = runner.Do(func() runner.Result{
-				return runner.NewResult(sda.discover())
-			})
-		}
-	}
-}
-
-func (sda *ServiceDiscoveryAgent) handleRequest(req serviceDiscoveryRequest) {
-	if sda.result != nil {
-		v := append([]net.SRV{}, sda.result...)
-		req.resultCh <- v
-		return
-	}
-
-	sda.pendingRequests = append(sda.pendingRequests, req)
-}
-
-func (sda *ServiceDiscoveryAgent) setResult(addrs []net.SRV, err error){
-	for _, pendingRequest := range sda.pendingRequests {
-		if err == nil {
-			v := append([]net.SRV{}, addrs...)
-			pendingRequest.resultCh <- v
-		} else {
-			pendingRequest.errCh <- err
-		}
-	}
-
-	sda.pendingRequests = nil
-	if err == nil {
-		sda.result = addrs
-	} else {
-		sda.result = nil
-	}
-}
-
-func (sda *ServiceDiscoveryAgent) GetResult(ctx context.Context) ([]net.SRV, error){
-	errCh := make(chan error, 1)
-	resultCh := make(chan []net.SRV, 1)
-	req := serviceDiscoveryRequest{
-		errCh: errCh,
-		resultCh: resultCh,
-	}
-
-	select {
-	case sda.requests <- req:
-	case <- sda.lc.ShutdownRequest():
-		return nil, ErrShuttingDown
-	case <- ctx.Done():
-		return nil, ctx.Err()
-	}
-
-	select {
-	case result := <- resultCh:
-		return result, nil
-	case err := <- errCh:
-		return nil, err
-	case <- ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-func (sda *ServiceDiscoveryAgent) GetAddresss(ctx context.Context) (net.SRV, error) {
-	addrs, err := sda.GetResult(ctx)
-	if err != nil {
-		return net.SRV{}, err
-	}
-	// Ignore priority & weight, just make a random selection. This generally has a length
-	// of 1
-	addrI := rand.Int31n(int32(len(addrs)))
-	addr := addrs[addrI]
-
-	return addr, nil
-}
-
-func (sda *ServiceDiscoveryAgent) discover() ([]net.SRV, error){
-	_, addrs, err := net.LookupSRV(sda.portName, sda.portProtocol, fmt.Sprintf("%s.%s.svc.cluster.local", sda.serviceName, sda.namespace))
-	if err != nil {
-		sda.log.Error("discovery failed","error", err, "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
-		return nil, err
-	}
-
-	// De-pointerize result
-	result := make([]net.SRV, len(addrs))
-	for i, addr := range addrs {
-		result[i] = *addr
-	}
-	sda.log.Info("discovery success", "addrs", result,  "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
-
-	return result, nil
-}
-
-
-
 func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
-	sda := NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp")
+	sda := clusterutil.NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp")
 
 	const requestTimeout = time.Second * 30 // TODO - configurable
 	dialer := net.Dialer{
@@ -302,13 +111,13 @@ const (
 
 /* A client to talk to the Akash implementation of the IP Operator via HTTP */
 type ipOperatorClient struct {
-	sda *ServiceDiscoveryAgent
+	sda clusterutil.ServiceDiscoveryAgent
 	httpClient *http.Client
 	log log.Logger
 }
 
 func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, path string, body io.Reader) (*http.Request, error) {
-	addr, err := ipoc.sda.GetAddresss(ctx)
+	addr, err := ipoc.sda.GetAddress(ctx)
 	if err != nil {
 		return nil, err
 	}

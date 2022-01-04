@@ -120,10 +120,20 @@ type ForwardedPortStatus struct {
 	Name         string                   `json:"name"`
 }
 
+type IPLeaseStatus struct {
+	IP string
+	Port         uint16                   `json:"port"`
+	ExternalPort uint16                   `json:"externalPort"`
+	Proto        manifest.ServiceProtocol `json:"proto"`
+	Available    int32                    `json:"available"`
+	Name         string                   `json:"name"`
+}
+
 // LeaseStatus includes list of services with their status
 type LeaseStatus struct {
 	Services       map[string]*ServiceStatus        `json:"services"`
 	ForwardedPorts map[string][]ForwardedPortStatus `json:"forwarded_ports"` // Container services that are externally accessible
+	LeasedIPs map[string][]IPLeaseStatus
 }
 
 type Inventory interface {

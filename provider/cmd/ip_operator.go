@@ -3,9 +3,11 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/ovrclk/akash/provider/cluster"
 	clusterClient "github.com/ovrclk/akash/provider/cluster/kube"
 	"github.com/ovrclk/akash/provider/cluster/kube/metallb"
@@ -18,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/kubernetes"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"time"
@@ -58,9 +61,12 @@ type ipOperator struct {
 
 	// TODO - is thig going to need to be persisted somehow?
 	// The provider would basically be 'confused' if this operator restarted
-	// and lost this data
-	reservations map[string]ipReservationEntry 
+	// and lost this data. Can we figure this out by just looking at the bids
+	// currently open on the network by this provider ?
+	reservations map[string]ipReservationEntry
 	reservationsLock sync.Locker
+
+	providerSda clusterutil.ServiceDiscoveryAgent
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -492,7 +498,7 @@ func (op *ipOperator) removeReservation(orderID mtypes.OrderID) error {
 	return nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client) (*ipOperator) {
+func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator) {
 	retval := &ipOperator{
 		state:  make(map[string]managedIp),
 		client: client,
@@ -502,16 +508,17 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		mllbc: mllbc,
 		reservations: make(map[string]ipReservationEntry),
 		reservationsLock: &sync.Mutex{},
+		providerSda: providerSda,
 	}
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
 	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
 
+	// TODO - add auth based off TokenReview via k8s interface to below methods
 	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
 		clientID := req.Header.Get("X-Client-Id")
 		_ = clientID
 
-		// TODO - add auth based off TokenReview via k8s interface
 		if req.Method == http.MethodPost {
 			handleReservationPost(retval, rw, req)
 		} else if req.Method == http.MethodDelete {
@@ -522,7 +529,186 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 
 
 	}).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
+
+
+	retval.server.router.HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
+		handleIPLeaseStatusGet(retval, rw, req)
+	}).Methods(http.MethodGet)
 	return retval
+}
+
+func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Request){
+
+	addr, err := op.providerSda.GetAddress(req.Context())
+	if err != nil {
+		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
+		return
+	}
+
+	// TODO - move this fetch code at least to a utility function or something
+	tlsDialer := tls.Dialer{
+		NetDialer: nil,
+		Config:    &tls.Config{
+			Rand:                        nil,
+			Time:                        nil,
+			Certificates:                nil,
+			NameToCertificate:           nil,
+			GetCertificate:              nil,
+			GetClientCertificate:        nil,
+			GetConfigForClient:          nil,
+			VerifyPeerCertificate:       nil,
+			VerifyConnection:            nil,
+			RootCAs:                     nil,
+			NextProtos:                  nil,
+			ServerName:                  "",
+			ClientAuth:                  0,
+			ClientCAs:                   nil,
+			InsecureSkipVerify:          true,
+			CipherSuites:                nil,
+			PreferServerCipherSuites:    false,
+			SessionTicketsDisabled:      false,
+			SessionTicketKey:            [32]byte{},
+			ClientSessionCache:          nil,
+			MinVersion:                  0,
+			MaxVersion:                  0,
+			CurvePreferences:            nil,
+			DynamicRecordSizingDisabled: false,
+			Renegotiation:               0,
+			KeyLogWriter:                nil,
+		},
+	}
+	httpClient := http.Client{
+		Transport:     &http.Transport{
+			Proxy:                  nil,
+			DialContext:            nil,
+			Dial:                   nil,
+			DialTLSContext:         tlsDialer.DialContext,
+			DialTLS:                nil,
+			TLSClientConfig:        nil,
+			TLSHandshakeTimeout:    0,
+			DisableKeepAlives:      false,
+			DisableCompression:     false,
+			MaxIdleConns:           0,
+			MaxIdleConnsPerHost:    0,
+			MaxConnsPerHost:        0,
+			IdleConnTimeout:        0,
+			ResponseHeaderTimeout:  0,
+			ExpectContinueTimeout:  0,
+			TLSNextProto:           nil,
+			ProxyConnectHeader:     nil,
+			GetProxyConnectHeader:  nil,
+			MaxResponseHeaderBytes: 0,
+			WriteBufferSize:        0,
+			ReadBufferSize:         0,
+			ForceAttemptHTTP2:      false,
+		},
+		CheckRedirect: nil,
+		Jar:           nil,
+		Timeout:       0,
+	}
+
+	statusUrl := fmt.Sprintf("https://%s:%d/status", addr.Target, addr.Port)
+	statusReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, statusUrl, nil)
+	if err != nil {
+		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
+		return
+	}
+	response, err := httpClient.Do(statusReq)
+	if err != nil {
+		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
+		return
+	}
+
+	if response.StatusCode != http.StatusOK {
+		op.log.Error("provider status API failed", "status", response.StatusCode)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+
+	statusData := struct{
+		Address string `json:"address"`
+	}{}
+	decoder := json.NewDecoder(response.Body)
+	err = decoder.Decode(&statusData)
+	if err != nil {
+		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
+		return
+	}
+	providerAddr := statusData.Address
+	if len(providerAddr) == 0 {
+		op.log.Error("provider status API did not include address information")
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+
+	vars := mux.Vars(req)
+
+	dseqStr := vars["dseq"]
+	dseq, err := strconv.ParseUint(dseqStr, 10, 64)
+	if err != nil {
+		op.log.Info("could not parse path component as uint64","dseq", dseqStr, "error", err)
+		rw.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	gseqStr := vars["gseq"]
+	gseq, err := strconv.ParseUint(gseqStr, 10, 32)
+	if err != nil {
+		op.log.Info("could not parse path component as uint32","gseq", gseqStr, "error", err)
+		rw.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	oseqStr := vars["oseq"]
+	oseq, err := strconv.ParseUint(oseqStr, 10, 32)
+	if err != nil {
+		op.log.Info("could not parse path component as uint32","oseq", oseqStr, "error", err)
+		rw.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	owner := vars["owner"] // TODO  - validate this is a bech32 addr
+
+
+	leaseID := mtypes.LeaseID{
+		Owner:    owner,
+		DSeq:     dseq,
+		GSeq:     uint32(gseq),
+		OSeq:     uint32(oseq),
+		Provider: providerAddr,
+	}
+
+	ipStatus, err := op.mllbc.GetIPAddressStatusForLease(req.Context(), leaseID)
+	if err != nil {
+		op.log.Error("Could not get IP address status", "lease-id", leaseID, "error", err)
+		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
+		return
+	}
+
+	if len(ipStatus) == 0 {
+		rw.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(rw)
+	// ipStaus is a slice of interface types, so it can't be encoded directly
+	responseData := make([]ipoptypes.LeaseIPStatus, len(ipStatus))
+	for i, v := range ipStatus {
+		responseData[i] = ipoptypes.LeaseIPStatus{
+			Port: v.GetPort(),
+			ExternalPort: v.GetExternalPort(),
+			ServiceName: v.GetServiceName(),
+			IP: v.GetIP(),
+			Protocol: v.GetProtocol().ToString(),
+		}
+	}
+	err = encoder.Encode(responseData)
+	if err != nil {
+		op.log.Error("failed writing JSON of ip status response", "error", err)
+	}
 }
 
 func (op *ipOperator) addReservation(orderID mtypes.OrderID, quantity uint) (bool, error) {
@@ -573,9 +759,11 @@ func doIPOperator(cmd *cobra.Command) error {
 		return err
 	}
 
+	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP")
+
 	logger.Info("clients","kube", client, "metallb", mllbc)
 
-	op := newIpOperator(logger, client, ignoreListConfigFromViper(), mllbc)
+	op := newIpOperator(logger, client, ignoreListConfigFromViper(), mllbc, providerSda)
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
 

@@ -87,7 +87,7 @@ func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ctxCon
 	// GET /status
 	// provider status endpoint does not require authentication
 	router.HandleFunc("/status",
-		createStatusHandler(log, pclient)).
+		createStatusHandler(log, pclient, addr)).
 		Methods("GET")
 
 	// GET /validate
@@ -391,14 +391,21 @@ func leaseShellHandler(log log.Logger, mclient pmanifest.Client, cclient cluster
 	}
 }
 
-func createStatusHandler(log log.Logger, sclient provider.StatusClient) http.HandlerFunc {
+func createStatusHandler(log log.Logger, sclient provider.StatusClient, providerAddr sdk.Address) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		status, err := sclient.Status(req.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(log, w, status)
+		data := struct{
+			provider.Status
+			Address string `json:"address"`
+		}{
+			Status: *status,
+			Address: providerAddr.String(),
+		}
+		writeJSON(log, w, data)
 	}
 }
 

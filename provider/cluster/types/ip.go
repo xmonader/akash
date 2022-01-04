@@ -23,3 +23,8 @@ type IPPassthrough interface {
 	GetSharingKey() string
 	GetProtocol() manifest.ServiceProtocol
 }
+
+type IPLeaseState interface {
+	IPPassthrough
+	GetIP() string
+}
