@@ -298,7 +298,7 @@ loop:
 				}
 			}
 
-			// Resources reserved.
+			// Resources reserved
 			reservation = result.Value().(ctypes.Reservation)
 			if o.bidPlaced {
 				o.log.Info("Fulfillment already exists")
