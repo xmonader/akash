@@ -60,7 +60,6 @@ type ReadClient interface {
 
 	ObserveIPState(ctx context.Context) (<- chan ctypes.IPResourceEvent, error)
 	GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error)
-	GetIPStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]interface{}, error)
 }
 
 // Client interface lease and deployment methods
@@ -604,9 +603,5 @@ func (c *nullClient) PurgeDeclaredIP(ctx context.Context, lID mtypes.LeaseID, se
 }
 
 func (c *nullClient) GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error) {
-	return nil, errNotImplemented
-}
-
-func (c *nullClient) GetIPStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]interface{}, error){
 	return nil, errNotImplemented
 }

@@ -317,12 +317,14 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 				panic("unknown proto from kube: " + string(port.Protocol))
 			}
 
+			selectedServiceName := service.Spec.Selector[builder.AkashManifestServiceLabelName]
 
 			// Note: don't care about node port here, even if it is assigned
+			// Note: service.Name is a procedurally generated thing that doesn't mean anything to the end user
 			result = append(result, ipLeaseState{
 				leaseID:      leaseID,
 				ip:           ingress.IP,
-				serviceName:  service.Name,
+				serviceName:  selectedServiceName,
 				externalPort: uint32(port.Port),
 				port:         uint32(port.TargetPort.IntValue()),
 				sharingKey:   service.ObjectMeta.Annotations[metalLbAllowSharedIp],

@@ -642,7 +642,6 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 		return
 	}
 
-
 	vars := mux.Vars(req)
 
 	dseqStr := vars["dseq"]

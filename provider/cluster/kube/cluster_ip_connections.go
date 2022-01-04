@@ -400,41 +400,6 @@ func createIPPassthroughResourceName(directive ctypes.ClusterIPPassthroughDirect
 	return strings.ToLower(fmt.Sprintf("%s-ip-%d-%v", directive.ServiceName, directive.ExternalPort, directive.Protocol))
 }
 
-func (c *client) GetIPStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]interface{}, error){
-	ns := builder.LidNS(leaseID)
-	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error){
-		return c.kc.CoreV1().Services(ns).List(ctx, opts)
-	})
-
-	labelSelector := &strings.Builder{}
-
-	_, err := fmt.Fprintf(labelSelector, "%s=true", builder.AkashManagedLabelName)
-	if err != nil {
-		return nil, err
-	}
-	_, err = fmt.Fprintf(labelSelector, ",%s=%s", akashServiceTarget, akashMetalLB)
-	if err != nil {
-		return nil, err
-	}
-
-	err = servicePager.EachListItem(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector.String(),
-	},
-		func(obj runtime.Object) error {
-			service := obj.(*corev1.Service)
-
-			loadBalancerIngress := service.Status.LoadBalancer.Ingress
-			// Logs something like this : │ load balancer status                         cmp=provider client=kube service=web-ip-80-tcp lb-ingress="[{IP:24.0.0.1 Hostname: Ports:[]}]"
-			c.log.Debug("load balancer status", "service", service.ObjectMeta.Name, "lb-ingress", loadBalancerIngress)
-			for _, ingress := range loadBalancerIngress {
-				_ = ingress.IP
-			}
-
-		return nil
-		})
-
-	return nil, nil
-}
 
 func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
 	var proto corev1.Protocol

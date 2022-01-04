@@ -456,13 +456,13 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.L
 	forwardedPorts := make(map[string][]ctypes.ForwardedPortStatus, len(serviceStatus))
 	leasedIPs := make(map[string][]ctypes.IPLeaseStatus, len(serviceStatus))
 
-	// TODO - don't touch this direclty from here. Instead make an API call to the ip operator
-	// to get this data
+	// TODO - use the ip operator client to get the ip status here
+	/**
 	_, err = c.GetIPStatusForLease(ctx, lid)
 	if err != nil {
 		c.log.Error("failed getting ip status for lease", "lease-id", lid, "error", err)
 		return nil, errors.Wrap(err, ErrInternalError.Error())
-	}
+	}*/
 
 	// For each provider host entry, update the status of each service to indicate
 	// the presently assigned hostnames
@@ -472,8 +472,6 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.L
 			entry.URIs = append(entry.URIs, ph.Spec.Hostname)
 		}
 	}
-
-
 
 	services, err := c.kc.CoreV1().Services(builder.LidNS(lid)).List(ctx, metav1.ListOptions{})
 	label := metricsutils.SuccessLabel
