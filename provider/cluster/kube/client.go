@@ -428,8 +428,7 @@ func (c *client) LeaseLogs(ctx context.Context, lid mtypes.LeaseID,
 	return streams, nil
 }
 
-// todo: limit number of results and do pagination / streaming
-func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.LeaseStatus, error) {
+func (c *client) ForwardedPortStatus(ctx context.Context, leaseID mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error) {
 	settingsI := ctx.Value(builder.SettingsKey)
 	if nil == settingsI {
 		return nil, errNotConfiguredWithSettings
@@ -439,41 +438,7 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.L
 		return nil, err
 	}
 
-	serviceStatus, err := c.deploymentsForLease(ctx, lid)
-	if err != nil {
-		return nil, err
-	}
-	labelSelector := &strings.Builder{}
-	kubeSelectorForLease(labelSelector, lid)
-	phResult, err := c.ac.AkashV1().ProviderHosts(c.ns).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector.String(),
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	forwardedPorts := make(map[string][]ctypes.ForwardedPortStatus, len(serviceStatus))
-	leasedIPs := make(map[string][]ctypes.IPLeaseStatus, len(serviceStatus))
-
-	// TODO - use the ip operator client to get the ip status here
-	/**
-	_, err = c.GetIPStatusForLease(ctx, lid)
-	if err != nil {
-		c.log.Error("failed getting ip status for lease", "lease-id", lid, "error", err)
-		return nil, errors.Wrap(err, ErrInternalError.Error())
-	}*/
-
-	// For each provider host entry, update the status of each service to indicate
-	// the presently assigned hostnames
-	for _, ph := range phResult.Items {
-		entry, ok := serviceStatus[ph.Spec.ServiceName]
-		if ok {
-			entry.URIs = append(entry.URIs, ph.Spec.Hostname)
-		}
-	}
-
-	services, err := c.kc.CoreV1().Services(builder.LidNS(lid)).List(ctx, metav1.ListOptions{})
+	services, err := c.kc.CoreV1().Services(builder.LidNS(leaseID)).List(ctx, metav1.ListOptions{})
 	label := metricsutils.SuccessLabel
 
 	if err != nil {
@@ -485,13 +450,15 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.L
 		return nil, errors.Wrap(err, ErrInternalError.Error())
 	}
 
+	forwardedPorts := make(map[string][]ctypes.ForwardedPortStatus)
+
 	// Search for a Kubernetes service declared as nodeport
 	for _, service := range services.Items {
 		if service.Spec.Type == corev1.ServiceTypeNodePort {
 			serviceName := service.Name // Always suffixed during creation, so chop it off
 			deploymentName := serviceName[0 : len(serviceName)-len(builder.SuffixForNodePortServiceName)]
-			deployment, ok := serviceStatus[deploymentName]
-			if ok && 0 != len(service.Spec.Ports) {
+
+			if 0 != len(service.Spec.Ports) {
 				portsForDeployment := make([]ctypes.ForwardedPortStatus, 0, len(service.Spec.Ports))
 				for _, port := range service.Spec.Ports {
 					// Check if the service is exposed via NodePort mechanism in the cluster
@@ -503,7 +470,6 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.L
 							Host:         settings.ClusterPublicHostname,
 							Port:         uint16(port.TargetPort.IntVal),
 							ExternalPort: uint16(nodePort),
-							Available:    deployment.Available,
 							Name:         deploymentName,
 						}
 
@@ -526,13 +492,46 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (*ctypes.L
 		}
 	}
 
-	response := &ctypes.LeaseStatus{
-		Services:       serviceStatus,
-		ForwardedPorts: forwardedPorts,
-		LeasedIPs: leasedIPs,
+	return nil, nil
+}
+
+// todo: limit number of results and do pagination / streaming
+func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (map[string]*ctypes.ServiceStatus, error) {
+	settingsI := ctx.Value(builder.SettingsKey)
+	if nil == settingsI {
+		return nil, errNotConfiguredWithSettings
+	}
+	settings := settingsI.(builder.Settings)
+	if err := builder.ValidateSettings(settings); err != nil {
+		return nil, err
 	}
 
-	return response, nil
+	serviceStatus, err := c.deploymentsForLease(ctx, lid)
+	if err != nil {
+		return nil, err
+	}
+	labelSelector := &strings.Builder{}
+	kubeSelectorForLease(labelSelector, lid)
+	// Note: this is a separate call to the Kubernetes API to get this data. It could
+	// be a separate method on the interface entirely
+	phResult, err := c.ac.AkashV1().ProviderHosts(c.ns).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector.String(),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// For each provider host entry, update the status of each service to indicate
+	// the presently assigned hostnames
+	for _, ph := range phResult.Items {
+		entry, ok := serviceStatus[ph.Spec.ServiceName]
+		if ok {
+			entry.URIs = append(entry.URIs, ph.Spec.Hostname)
+		}
+	}
+
+	return serviceStatus, nil
 }
 
 func (c *client) ServiceStatus(ctx context.Context, lid mtypes.LeaseID, name string) (*ctypes.ServiceStatus, error) {

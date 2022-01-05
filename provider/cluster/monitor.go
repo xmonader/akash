@@ -163,6 +163,8 @@ func (m *deploymentMonitor) runCheck(ctx context.Context) <-chan runner.Result {
 }
 
 func (m *deploymentMonitor) doCheck(ctx context.Context) (bool, error) {
+	// TODO - does it make sense to have this check for other infrastructure that is part of the
+	// lease but might be missing due to technical faults (like hostanames, IPs, etc.) ?
 	clientCtx := util.ApplyToContext(ctx, m.clusterSettings)
 
 	status, err := m.client.LeaseStatus(clientCtx, m.lease)
@@ -175,7 +177,7 @@ func (m *deploymentMonitor) doCheck(ctx context.Context) (bool, error) {
 	badsvc := 0
 
 	for _, spec := range m.mgroup.Services {
-		service, foundService := status.Services[spec.Name]
+		service, foundService := status[spec.Name]
 		if foundService {
 			if uint32(service.Available) < spec.Count {
 				badsvc++

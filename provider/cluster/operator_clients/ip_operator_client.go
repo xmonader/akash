@@ -24,6 +24,7 @@ type IPOperatorClient interface{
 	GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error)
 	ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error)
 	UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error
+	GetIPAddressStatus(ctx context.Context, leaseID mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error)
 	Stop(ctx context.Context) error
 }
 
@@ -49,6 +50,10 @@ func (_ ipOperatorNullClient) UnreserveIPAddress(ctx context.Context, orderID mt
 
 func (_ ipOperatorNullClient) Stop(ctx context.Context) error {
 	return nil
+}
+
+func (_ ipOperatorNullClient) GetIPAddressStatus(ctx context.Context, id mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error) {
+	return nil, errNotImplemented
 }
 
 
@@ -125,6 +130,39 @@ func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, pat
 	return http.NewRequest(method, remoteURL, body)
 }
 
+func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, leaseID mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error) {
+	path := fmt.Sprintf("/ip-lease-status/%s/%d/%d/%d", leaseID.GetOwner(), leaseID.GetDSeq(), leaseID.GetGSeq(), leaseID.GetOSeq())
+	req, err := ipoc.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	ipoc.log.Debug("asking for IP address status", "method", req.Method, "url", req.URL)
+	response, err := ipoc.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	ipoc.log.Debug("ip address status request result", "status", response.StatusCode)
+
+	if response.StatusCode == http.StatusNoContent {
+		return nil, nil // No data for this lease
+	}
+
+	if response.StatusCode != http.StatusOK {
+		return nil, extractRemoteError(response.Body)
+	}
+
+	var result []ipoptypes.LeaseIPStatus
+
+	decoder := json.NewDecoder(response.Body)
+	err = decoder.Decode(&result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error) {
 	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
@@ -152,6 +190,7 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtyp
 		ipoc.sda.DiscoverNow()
 		return false, err
 	}
+	ipoc.log.Info("ip reservation request result", "status", response.StatusCode)
 
 	if response.StatusCode != http.StatusOK {
 		return false, extractRemoteError(response.Body)

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	"io"
 	"net/http"
 	"os"
@@ -607,11 +608,17 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	ipOperatorClient, err := operator_clients.NewIPOperatorClient(log)
+	if err != nil {
+		return err
+	}
+
 	gateway, err := gwrest.NewServer(
 		ctx,
 		log,
 		service,
 		cquery,
+		ipOperatorClient,
 		gwaddr,
 		cctx.FromAddress,
 		[]tls.Certificate{cert},

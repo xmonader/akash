@@ -47,7 +47,8 @@ var (
 var _ Client = (*nullClient)(nil)
 
 type ReadClient interface {
-	LeaseStatus(context.Context, mtypes.LeaseID) (*ctypes.LeaseStatus, error)
+	LeaseStatus(context.Context, mtypes.LeaseID) (map[string]*ctypes.ServiceStatus, error)
+	ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus ,error)
 	LeaseEvents(context.Context, mtypes.LeaseID, string, bool) (ctypes.EventsWatcher, error)
 	LeaseLogs(context.Context, mtypes.LeaseID, string, bool, *int64) ([]*ctypes.ServiceLog, error)
 	ServiceStatus(context.Context, mtypes.LeaseID, string) (*ctypes.ServiceStatus, error)
@@ -426,7 +427,11 @@ func (c *nullClient) Deploy(ctx context.Context, lid mtypes.LeaseID, mgroup *man
 	return nil
 }
 
-func (c *nullClient) LeaseStatus(_ context.Context, lid mtypes.LeaseID) (*ctypes.LeaseStatus, error) {
+func (_ *nullClient) ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error)  {
+	return nil, errNotImplemented
+}
+
+func (c *nullClient) LeaseStatus(_ context.Context, lid mtypes.LeaseID) (map[string]*ctypes.ServiceStatus, error) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
@@ -435,10 +440,9 @@ func (c *nullClient) LeaseStatus(_ context.Context, lid mtypes.LeaseID) (*ctypes
 		return nil, nil
 	}
 
-	resp := &ctypes.LeaseStatus{}
-	resp.Services = make(map[string]*ctypes.ServiceStatus)
+	resp := make(map[string]*ctypes.ServiceStatus)
 	for _, svc := range lease.group.Services {
-		resp.Services[svc.Name] = &ctypes.ServiceStatus{
+		resp[svc.Name] = &ctypes.ServiceStatus{
 			Name:      svc.Name,
 			Available: int32(svc.Count),
 			Total:     int32(svc.Count),

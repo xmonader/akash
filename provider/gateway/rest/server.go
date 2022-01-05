@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"crypto/tls"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	"net"
 	"net/http"
 	"time"
@@ -20,6 +21,7 @@ func NewServer(
 	log log.Logger,
 	pclient provider.Client,
 	cquery ctypes.QueryClient,
+	ipopclient operator_clients.IPOperatorClient,
 	address string,
 	pid sdk.Address,
 	certs []tls.Certificate,
@@ -27,7 +29,7 @@ func NewServer(
 
 	srv := &http.Server{
 		Addr:    address,
-		Handler: newRouter(log, pid, pclient, clusterConfig),
+		Handler: newRouter(log, pid, pclient, ipopclient, clusterConfig),
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
