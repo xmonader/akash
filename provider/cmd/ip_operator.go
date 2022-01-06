@@ -18,7 +18,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
-	"k8s.io/client-go/kubernetes"
 	"net/http"
 	"strconv"
 	"sync"
@@ -56,10 +55,9 @@ type ipOperator struct {
 	available uint
 	inUse uint
 
-	kube kubernetes.Interface
 	mllbc metallb.Client
 
-	// TODO - is thig going to need to be persisted somehow?
+	// TODO - is this going to need to be persisted somehow?
 	// The provider would basically be 'confused' if this operator restarted
 	// and lost this data. Can we figure this out by just looking at the bids
 	// currently open on the network by this provider ?
@@ -75,7 +73,7 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 
 	op.state = make(map[string]managedIp)
 
-	entries, err := op.client.GetIPPassthroughs(ctx)
+	entries, err := op.mllbc.GetIPPassthroughs(ctx)
 	if err != nil {
 		cancel()
 		return err
@@ -219,7 +217,7 @@ func (op *ipOperator) applyEvent(ctx context.Context, ev ctypes.IPResourceEvent)
 
 func (op *ipOperator) applyDeleteEvent(ctx context.Context, ev ctypes.IPResourceEvent) error {
 	directive := buildIPDirective(ev)
-	err := op.client.PurgeIPPassthrough(ctx, ev.GetLeaseID(), directive)
+	err := op.mllbc.PurgeIPPassthrough(ctx, ev.GetLeaseID(), directive)
 
 	if err == nil {
 		uid := getStateKeyFromEvent(ev)
@@ -294,7 +292,7 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 
 	if shouldConnect {
 		op.log.Debug("Updating ip passthrough")
-		err = op.client.CreateIPPassthrough(ctx, leaseID, directive)
+		err = op.mllbc.CreateIPPassthrough(ctx, leaseID, directive)
 	}
 
 	if err == nil { // Update stored entry if everything went OK
@@ -812,7 +810,7 @@ func (op *ipOperator) run(parentCtx context.Context) error {
 		err := op.monitorUntilError(parentCtx)
 		if errors.Is(err, context.Canceled) {
 			op.log.Debug("ip operator terminate")
-			return err
+			break
 		}
 
 		op.log.Error("observation stopped", "err", err)
@@ -823,10 +821,15 @@ func (op *ipOperator) run(parentCtx context.Context) error {
 			op.log.Info("delaying")
 			select {
 			case <-parentCtx.Done():
-				return parentCtx.Err()
+				break
+
 			case <-time.After(threshold):
 				// delay complete
 			}
 		}
 	}
+
+	op.providerSda.Stop()
+	op.mllbc.Stop()
+	return parentCtx.Err()
 }

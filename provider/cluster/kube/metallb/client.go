@@ -8,22 +8,26 @@ import (
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
 	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types"
+	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
+	"github.com/tendermint/tendermint/libs/log"
 	corev1 "k8s.io/api/core/v1"
+	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/pager"
 	"k8s.io/client-go/util/flowcontrol"
-	"github.com/tendermint/tendermint/libs/log"
 	"math"
-	"math/rand"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/prometheus/common/expfmt"
+
+	kubeclienterrors "github.com/ovrclk/akash/provider/cluster/kube/errors"
 )
 
 const (
@@ -36,21 +40,26 @@ const (
 type Client interface {
 	GetIPAddressUsage() (uint, uint, error)
 	GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]ctypes.IPLeaseState, error)
+
+	CreateIPPassthrough(ctx context.Context, lID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error
+	PurgeIPPassthrough(ctx context.Context, lID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error
+	GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error)
+
+	Stop()
 }
 
 type client struct {
 	kube kubernetes.Interface
 	httpClient *http.Client
 
-	metricsHost string
-	metricsPort uint16
-
 	log               log.Logger
+
+	sda clusterutil.ServiceDiscoveryAgent
 }
 
 
 func (c *client) String() string {
-	return fmt.Sprintf("metal LB client %p (%s:%d)", c, c.metricsHost, c.metricsPort)
+	return fmt.Sprintf("metal LB client %p", c)
 }
 
 const (
@@ -116,18 +125,12 @@ func NewClient(configPath string, logger log.Logger) (Client, error){
 		ForceAttemptHTTP2:      false,
 	}
 
-	// TODO - if the pod is rebooted, do we need to rediscover this?
-	_, addrs, err := net.LookupSRV("monitoring","tcp", serviceHostName)
-	if err != nil {
-		return nil, err
-	}
 
-	// Ignore priority & weight, just make a random selection. This generally has a length
-	// of 1
-	addrI := rand.Int31n(int32(len(addrs)))
-	addr := addrs[addrI]
+	sda := clusterutil.NewServiceDiscoveryAgent(logger, "monitoring", "controller", "metallb-system", "TCP")
+
 
 	return &client{
+		sda: sda,
 		kube: kc,
 		httpClient: &http.Client{
 			Transport:     transport,
@@ -135,11 +138,14 @@ func NewClient(configPath string, logger log.Logger) (Client, error){
 			Jar:           nil,
 			Timeout:       metricsTimeout,
 		},
-		metricsHost: addr.Target,
-		metricsPort: addr.Port,
+
 		log: logger.With("client","metallb"),
 	}, nil
 
+}
+
+func (c *client) Stop() {
+	c.sda.Stop()
 }
 
 /*
@@ -152,8 +158,13 @@ can get stuff like this to access metal lb metrics
 
 
 func (c *client) GetIPAddressUsage() (uint, uint,  error) {
-	metricsURL := fmt.Sprintf("http://%s:%d%s", c.metricsHost, c.metricsPort, metricsPath)
 	ctx := context.Background() // TODO - make this method take a context
+	metalAddr, err := c.sda.GetAddress(ctx)
+	if err != nil {
+		return math.MaxUint32,math.MaxUint32, err
+	}
+	metricsURL := fmt.Sprintf("http://%s:%d%s", metalAddr.Target, metalAddr.Port, metricsPath)
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
 	if err != nil {
 		return math.MaxUint32,math.MaxUint32, err
@@ -335,4 +346,221 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 		})
 
 	return result, nil
+}
+
+
+
+func (c *client) PurgeIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
+	ns := builder.LidNS(leaseID)
+	portName := createIPPassthroughResourceName(directive)
+
+	err := c.kube.CoreV1().Services(ns).Delete(ctx, portName, metav1.DeleteOptions{})
+
+	if err != nil && kubeErrors.IsNotFound(err) {
+		return nil
+	}
+
+	return err
+}
+
+func createIPPassthroughResourceName(directive ctypes.ClusterIPPassthroughDirective) string{
+	return strings.ToLower(fmt.Sprintf("%s-ip-%d-%v", directive.ServiceName, directive.ExternalPort, directive.Protocol))
+}
+
+func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
+	var proto corev1.Protocol
+
+	switch(directive.Protocol) {
+	case manifest.TCP:
+		proto = corev1.ProtocolTCP
+	case manifest.UDP:
+		proto = corev1.ProtocolUDP
+	default:
+		return fmt.Errorf("%w unknown protocol %v", kubeclienterrors.ErrInternalError, directive.Protocol)
+	}
+
+	ns := builder.LidNS(leaseID)
+	portName := createIPPassthroughResourceName(directive)
+
+	foundEntry, err := c.kube.CoreV1().Services(ns).Get(ctx, portName, metav1.GetOptions{})
+
+	exists := true
+	if err != nil {
+		if kubeErrors.IsNotFound(err) {
+			exists = false
+		} else {
+			return err
+		}
+	}
+
+	labels := make(map[string]string)
+	builder.AppendLeaseLabels(leaseID, labels)
+	labels[builder.AkashManagedLabelName] = "true"
+	labels[akashServiceTarget] = akashMetalLB
+
+	selector := map[string]string {
+		builder.AkashManagedLabelName: "true",
+		builder.AkashManifestServiceLabelName: directive.ServiceName,
+	}
+	// TODO - specify metallb.universe.tf/address-pool annotation if configured to do so only that pool is used at any time
+	annotations := map[string]string {
+		metalLbAllowSharedIp: directive.SharingKey,
+	}
+
+	port := corev1.ServicePort{
+		Name:        portName,
+		Protocol:    proto,
+		Port:        int32(directive.ExternalPort),
+		TargetPort:  intstr.FromInt(int(directive.Port)),
+	}
+
+	svc := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:                       portName,
+			Labels: labels,
+			Annotations: annotations,
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				port,
+			},
+			Selector:                      selector,
+			Type:                          corev1.ServiceTypeLoadBalancer,
+		},
+		Status: corev1.ServiceStatus{},
+	}
+
+	c.log.Debug("creating metal-lb service",
+		"service", directive.ServiceName,
+		"port", directive.Port,
+		"external-port", directive.ExternalPort,
+		"sharing-key", directive.SharingKey,
+		"exists", exists)
+	if exists {
+		svc.ResourceVersion = foundEntry.ResourceVersion
+		_, err = c.kube.CoreV1().Services(ns).Update(ctx, &svc, metav1.UpdateOptions{})
+	} else {
+		_, err = c.kube.CoreV1().Services(ns).Create(ctx, &svc, metav1.CreateOptions{})
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+
+func (c *client) GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error) {
+	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error){
+		return c.kube.CoreV1().Services(metav1.NamespaceAll).List(ctx, opts)
+	})
+
+	labelSelector := &strings.Builder{}
+
+	_, err := fmt.Fprintf(labelSelector, "%s=true", builder.AkashManagedLabelName)
+	if err != nil {
+		return nil, err
+	}
+	_, err = fmt.Fprintf(labelSelector, ",%s=%s", akashServiceTarget, akashMetalLB)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ctypes.IPPassthrough, 0)
+	err = servicePager.EachListItem(ctx,
+		metav1.ListOptions{
+			LabelSelector: labelSelector.String(),
+		},
+		func(obj runtime.Object) error {
+			service := obj.(*corev1.Service)
+
+			_, hasOwner := service.ObjectMeta.Labels[builder.AkashLeaseOwnerLabelName]
+			if !hasOwner {
+				// Not a service related to a running deployment, so probably internal services
+				return nil
+			}
+
+			if service.Spec.Type != corev1.ServiceTypeLoadBalancer {
+				return fmt.Errorf("resource %q wrong type in service definition %v", service.ObjectMeta.Name, service.Spec.Type)
+			}
+
+
+			ports := service.Spec.Ports
+			const expectedNumberOfPorts = 1
+			if len(ports) != expectedNumberOfPorts {
+				return fmt.Errorf("resource %q  wrong number of ports in load balancer service definition. expected %d, got %d", service.ObjectMeta.Name, expectedNumberOfPorts, len(ports))
+			}
+
+			portDefn := ports[0]
+			proto := portDefn.Protocol
+			port := portDefn.Port
+
+			// TODO - use a utlity method here rather than a cast
+			mproto, err := manifest.ParseServiceProtocol(string(proto))
+			if err != nil {
+				return err // TODO include resource name
+			}
+
+			leaseID, err := client_common.RecoverLeaseIdFromLabels(service.Labels)
+			if err != nil {
+				return err // TODO include resource name
+			}
+
+
+			serviceSelector := service.Spec.Selector
+			serviceName := serviceSelector[builder.AkashManifestServiceLabelName]
+			if len(serviceName) == 0 {
+				return fmt.Errorf("service name cannot be empty")
+			}
+
+			sharingKey := service.ObjectMeta.Annotations[metalLbAllowSharedIp]
+
+			v := ipPassthrough{
+				lID:          leaseID,
+				serviceName:  serviceName,
+				externalPort: uint32(port),
+				sharingKey:   sharingKey,
+				protocol:     mproto,
+			}
+
+			result = append(result, v)
+			return nil
+		})
+
+
+	return result, err
+}
+
+type ipPassthrough struct {
+	lID mtypes.LeaseID
+	serviceName string
+	port uint32
+	externalPort uint32
+	sharingKey string
+	protocol manifest.ServiceProtocol
+}
+
+func (ev ipPassthrough) GetLeaseID() mtypes.LeaseID {
+	return ev.lID
+}
+
+func (ev ipPassthrough) GetServiceName() string {
+	return ev.serviceName
+}
+
+func (ev ipPassthrough) GetPort() uint32 {
+	return ev.port
+}
+
+func (ev ipPassthrough) GetExternalPort() uint32 {
+	return ev.externalPort
+}
+
+func (ev ipPassthrough) GetSharingKey() string {
+	return ev.sharingKey
+}
+
+func (ev ipPassthrough) GetProtocol() manifest.ServiceProtocol {
+	return ev.protocol
 }

@@ -9,22 +9,12 @@ import (
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
-	corev1 "k8s.io/api/core/v1"
-
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/pager"
 	"strings"
-)
-
-// TODO - these should disappear after a refactor
-const (
-	akashServiceTarget = "akash.network/service-target"
-	akashMetalLB = "metal-lb"
-	metalLbAllowSharedIp = "metallb.universe.tf/allow-shared-ip"
 )
 
 func ipResourceName(leaseID mtypes.LeaseID, serviceName string, externalPort uint32, proto manifest.ServiceProtocol) string {
@@ -104,90 +94,6 @@ func (c *client) PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error
 	})
 
 	return result
-}
-
-func (c *client) GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error) {
-	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error){
-		return c.kc.CoreV1().Services(metav1.NamespaceAll).List(ctx, opts)
-	})
-
-	labelSelector := &strings.Builder{}
-
-	_, err := fmt.Fprintf(labelSelector, "%s=true", builder.AkashManagedLabelName)
-	if err != nil {
-		return nil, err
-	}
-	_, err = fmt.Fprintf(labelSelector, ",%s=%s", akashServiceTarget, akashMetalLB)
-	if err != nil {
-		return nil, err
-	}
-	
-	result := make([]ctypes.IPPassthrough, 0)
-	err = servicePager.EachListItem(ctx,
-		metav1.ListOptions{
-			LabelSelector: labelSelector.String(),
-		},
-		func(obj runtime.Object) error {
-			service := obj.(*corev1.Service)
-
-			_, hasOwner := service.ObjectMeta.Labels[builder.AkashLeaseOwnerLabelName]
-			if !hasOwner {
-				// Not a service related to a running deployment, so probably internal services
-				return nil
-			}
-
-			if service.Spec.Type != corev1.ServiceTypeLoadBalancer {
-				return fmt.Errorf("resource %q wrong type in service definition %v", service.ObjectMeta.Name, service.Spec.Type)
-			}
-
-
-			ports := service.Spec.Ports
-			const expectedNumberOfPorts = 1
-			if len(ports) != expectedNumberOfPorts {
-				return fmt.Errorf("resource %q  wrong number of ports in load balancer service definition. expected %d, got %d", service.ObjectMeta.Name, expectedNumberOfPorts, len(ports))
-			}
-
-			portDefn := ports[0]
-			proto := portDefn.Protocol
-			port := portDefn.Port
-
-			// TODO - use a utlity method here rather than a cast
-			mproto, err := manifest.ParseServiceProtocol(string(proto))
-			if err != nil {
-				return err // TODO include resource name
-			}
-
-			leaseID, err := recoverLeaseIdFromLabels(service.Labels)
-			if err != nil {
-				return err // TODO include resource name
-			}
-
-
-			serviceSelector := service.Spec.Selector
-			serviceName := serviceSelector[builder.AkashManifestServiceLabelName]
-			if len(serviceName) == 0 {
-				return fmt.Errorf("service name cannot be empty")
-			}
-
-			sharingKey := service.ObjectMeta.Annotations[metalLbAllowSharedIp]
-
-			v := ipResourceEvent{
-				lID:          leaseID,
-				eventType:    "", // unused
-				serviceName:  serviceName,
-				externalPort: uint32(port),
-				sharingKey:   sharingKey,
-				providerAddr: nil, // unused
-				ownerAddr:    nil, // unused
-				protocol:     mproto,
-			}
-
-			result = append(result, v)
-			return nil
-		})
-
-
-	return result, err
 }
 
 func (c *client) ObserveIPState(ctx context.Context) (<-chan ctypes.IPResourceEvent, error) {
@@ -381,105 +287,4 @@ func (ev ipResourceEvent) GetSharingKey() string {
 
 func (ev ipResourceEvent) GetProtocol() manifest.ServiceProtocol {
 	return ev.protocol
-}
-
-func (c *client) PurgeIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
-	ns := builder.LidNS(leaseID)
-	portName := createIPPassthroughResourceName(directive)
-
-	err := c.kc.CoreV1().Services(ns).Delete(ctx, portName, metav1.DeleteOptions{})
-
-	if err != nil && kubeErrors.IsNotFound(err) {
-		return nil
-	}
-
-	return err
-}
-
-func createIPPassthroughResourceName(directive ctypes.ClusterIPPassthroughDirective) string{
-	return strings.ToLower(fmt.Sprintf("%s-ip-%d-%v", directive.ServiceName, directive.ExternalPort, directive.Protocol))
-}
-
-
-func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
-	var proto corev1.Protocol
-
-	switch(directive.Protocol) {
-	case manifest.TCP:
-		proto = corev1.ProtocolTCP
-	case manifest.UDP:
-		proto = corev1.ProtocolUDP
-	default:
-		return fmt.Errorf("%w unknown protocol %v", ErrInternalError, directive.Protocol)
-	}
-
-	ns := builder.LidNS(leaseID)
-	portName := createIPPassthroughResourceName(directive)
-
-	foundEntry, err := c.kc.CoreV1().Services(ns).Get(ctx, portName, metav1.GetOptions{})
-
-	exists := true
-	if err != nil {
-		if kubeErrors.IsNotFound(err) {
-			exists = false
-		} else {
-			return err
-		}
-	}
-
-	labels := make(map[string]string)
-	builder.AppendLeaseLabels(leaseID, labels)
-	labels[builder.AkashManagedLabelName] = "true"
-	labels[akashServiceTarget] = akashMetalLB
-
-	selector := map[string]string {
-		builder.AkashManagedLabelName: "true",
-		builder.AkashManifestServiceLabelName: directive.ServiceName,
-	}
-	// TODO - specify metallb.universe.tf/address-pool annotation if configured to do so only that pool is used at any time
-	annotations := map[string]string {
-		metalLbAllowSharedIp: directive.SharingKey,
-	}
-
-	port := corev1.ServicePort{
-		Name:        portName,
-		Protocol:    proto,
-		Port:        int32(directive.ExternalPort),
-		TargetPort:  intstr.FromInt(int(directive.Port)),
-	}
-
-	svc := corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:                       portName,
-			Labels: labels,
-			Annotations: annotations,
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				port,
-			},
-			Selector:                      selector,
-			Type:                          corev1.ServiceTypeLoadBalancer,
-		},
-		Status: corev1.ServiceStatus{},
-	}
-
-	c.log.Debug("creating metal-lb service",
-		"service", directive.ServiceName,
-		"port", directive.Port,
-		"external-port", directive.ExternalPort,
-		"sharing-key", directive.SharingKey,
-		"exists", exists)
-	if exists {
-		svc.ResourceVersion = foundEntry.ResourceVersion
-		_, err = c.kc.CoreV1().Services(ns).Update(ctx, &svc, metav1.UpdateOptions{})
-	} else {
-		_, err = c.kc.CoreV1().Services(ns).Create(ctx, &svc, metav1.CreateOptions{})	
-	}
-	
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

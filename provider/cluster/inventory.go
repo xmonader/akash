@@ -588,10 +588,7 @@ loop:
 		<-runch
 	}
 
-	err := is.ipOperator.Stop(context.Background())
-	if err != nil {
-		is.log.Error("could not stop IP operator client", "err", err)
-	}
+	is.ipOperator.Stop()
 }
 
 func (is *inventoryService) runCheck(ctx context.Context) <-chan runner.Result {

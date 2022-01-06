@@ -33,18 +33,16 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
+
+	kubeclienterrors "github.com/ovrclk/akash/provider/cluster/kube/errors"
 )
 
 var (
 	ErrLeaseNotFound             = errors.New("kube: lease not found")
 	ErrNoDeploymentForLease      = errors.New("kube: no deployments for lease")
 	ErrNoManifestForLease        = errors.New("kube: no manifest for lease")
-	ErrInternalError             = errors.New("kube: internal error")
 	ErrNoServiceForLease         = errors.New("no service for that lease")
 	ErrInvalidHostnameConnection = errors.New("kube: invalid hostname connection")
-	ErrMissingLabel              = errors.New("kube: missing label")
-	ErrInvalidLabelValue         = errors.New("kube: invalid label value")
-
 	errNotConfiguredWithSettings = errors.New("not configured with settings in the context passed to function")
 )
 
@@ -406,7 +404,7 @@ func (c *client) LeaseLogs(ctx context.Context, lid mtypes.LeaseID,
 	kubeCallsCounter.WithLabelValues("pods-list", label).Inc()
 	if err != nil {
 		c.log.Error("listing pods", "err", err)
-		return nil, errors.Wrap(err, ErrInternalError.Error())
+		return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 	}
 	streams := make([]*ctypes.ServiceLog, len(pods.Items))
 	for i, pod := range pods.Items {
@@ -422,7 +420,7 @@ func (c *client) LeaseLogs(ctx context.Context, lid mtypes.LeaseID,
 		kubeCallsCounter.WithLabelValues("pods-getlogs", label).Inc()
 		if err != nil {
 			c.log.Error("get pod logs", "err", err)
-			return nil, errors.Wrap(err, ErrInternalError.Error())
+			return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 		}
 		streams[i] = cluster.NewServiceLog(pod.Name, stream)
 	}
@@ -448,7 +446,7 @@ func (c *client) ForwardedPortStatus(ctx context.Context, leaseID mtypes.LeaseID
 	kubeCallsCounter.WithLabelValues("services-list", label).Inc()
 	if err != nil {
 		c.log.Error("list services", "err", err)
-		return nil, errors.Wrap(err, ErrInternalError.Error())
+		return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 	}
 
 	forwardedPorts := make(map[string][]ctypes.ForwardedPortStatus)
@@ -576,7 +574,7 @@ func (c *client) ServiceStatus(ctx context.Context, lid mtypes.LeaseID, name str
 
 		if err != nil {
 			c.log.Error("deployment get", "err", err)
-			return nil, errors.Wrap(err, ErrInternalError.Error())
+			return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 		}
 		if deployment == nil {
 			c.log.Error("no deployment found", "name", name)
@@ -604,7 +602,7 @@ func (c *client) ServiceStatus(ctx context.Context, lid mtypes.LeaseID, name str
 
 		if err != nil {
 			c.log.Error("statefulsets get", "err", err)
-			return nil, errors.Wrap(err, ErrInternalError.Error())
+			return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 		}
 		if statefulset == nil {
 			c.log.Error("no statefulsets found", "name", name)
@@ -674,7 +672,7 @@ exposeCheckLoop:
 			kubeCallsCounter.WithLabelValues("provider-hosts", label).Inc()
 			if err != nil {
 				c.log.Error("provider hosts get", "err", err)
-				return nil, errors.Wrap(err, ErrInternalError.Error())
+				return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 			}
 
 			hosts := make([]string, 0, len(phs.Items))
@@ -710,7 +708,7 @@ func (c *client) leaseExists(ctx context.Context, lid mtypes.LeaseID) error {
 		}
 
 		c.log.Error("namespaces get", "err", err)
-		return errors.Wrap(err, ErrInternalError.Error())
+		return errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 	}
 
 	return nil
@@ -729,7 +727,7 @@ func (c *client) deploymentsForLease(ctx context.Context, lid mtypes.LeaseID) (m
 	kubeCallsCounter.WithLabelValues("deployments-list", label).Inc()
 	if err != nil {
 		c.log.Error("deployments list", "err", err)
-		return nil, errors.Wrap(err, ErrInternalError.Error())
+		return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 	}
 
 	statefulsets, err := c.kc.AppsV1().StatefulSets(builder.LidNS(lid)).List(ctx, metav1.ListOptions{})
@@ -740,7 +738,7 @@ func (c *client) deploymentsForLease(ctx context.Context, lid mtypes.LeaseID) (m
 	kubeCallsCounter.WithLabelValues("statefulsets-list", label).Inc()
 	if err != nil {
 		c.log.Error("statefulsets list", "err", err)
-		return nil, errors.Wrap(err, ErrInternalError.Error())
+		return nil, errors.Wrap(err, kubeclienterrors.ErrInternalError.Error())
 	}
 
 	serviceStatus := make(map[string]*ctypes.ServiceStatus)

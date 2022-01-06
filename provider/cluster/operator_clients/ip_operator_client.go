@@ -25,7 +25,7 @@ type IPOperatorClient interface{
 	ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error)
 	UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error
 	GetIPAddressStatus(ctx context.Context, leaseID mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error)
-	Stop(ctx context.Context) error
+	Stop()
 }
 
 
@@ -48,9 +48,7 @@ func (_ ipOperatorNullClient) UnreserveIPAddress(ctx context.Context, orderID mt
 	return errNotImplemented
 }
 
-func (_ ipOperatorNullClient) Stop(ctx context.Context) error {
-	return nil
-}
+func (_ ipOperatorNullClient) Stop(){}
 
 func (_ ipOperatorNullClient) GetIPAddressStatus(ctx context.Context, id mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error) {
 	return nil, errNotImplemented
@@ -106,8 +104,8 @@ func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
 	}, nil
 }
 
-func (ipoc ipOperatorClient) Stop(ctx context.Context) error {
-	return ipoc.sda.Stop(ctx)
+func (ipoc ipOperatorClient) Stop() {
+	ipoc.sda.Stop()
 }
 
 const (

@@ -60,7 +60,6 @@ type ReadClient interface {
 	GetHostnameDeploymentConnections(ctx context.Context) ([]ctypes.LeaseIDHostnameConnection, error)
 
 	ObserveIPState(ctx context.Context) (<- chan ctypes.IPResourceEvent, error)
-	GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error)
 }
 
 // Client interface lease and deployment methods
@@ -97,8 +96,6 @@ type Client interface {
 	PurgeDeclaredIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, externalPort uint32, proto manifest.ServiceProtocol) error
     PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error
 
-	CreateIPPassthrough(ctx context.Context, lID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error
-	PurgeIPPassthrough(ctx context.Context, lID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error
 
 }
 

@@ -507,7 +507,7 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 			return
 		}
 
-		if !found {
+		if !found { // If the manifest doesn't exist, there is no lease
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}

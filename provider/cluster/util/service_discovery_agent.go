@@ -18,7 +18,7 @@ var (
 )
 
 type ServiceDiscoveryAgent interface{
-	Stop(ctx context.Context) error
+	Stop()
 
 	GetAddress(ctx context.Context) (net.SRV, error)
 	DiscoverNow()
@@ -63,16 +63,8 @@ type serviceDiscoveryRequest struct {
 	resultCh chan <- []net.SRV
 }
 
-func (sda *serviceDiscoveryAgent) Stop(ctx context.Context) error {
+func (sda *serviceDiscoveryAgent) Stop()  {
 	sda.lc.Shutdown(nil)
-
-	select {
-	case <-sda.lc.Done():
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	return nil
 }
 
 func (sda *serviceDiscoveryAgent) DiscoverNow() {
