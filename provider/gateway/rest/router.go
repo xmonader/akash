@@ -499,6 +499,8 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 		ctx := util.ApplyToContext(req.Context(), clusterSettings)
 
 		leaseID := requestLeaseID(req)
+		result := LeaseStatus{}
+
 		hasLeasedIPs := true // TODO - check manifest for this
 		var ipLeaseStatus []ipoptypes.LeaseIPStatus
 		if hasLeasedIPs {
@@ -508,21 +510,38 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			_ = ipLeaseStatus
+			result.IPs = make(map[string][]LeasedIPStatus)
+
+			for _, ipLease := range ipLeaseStatus {
+				entries := result.IPs[ipLease.ServiceName]
+				if entries == nil {
+					entries = make([]LeasedIPStatus, 0)
+				}
+
+				entries = append(entries, LeasedIPStatus{
+					Port:         ipLease.Port,
+					ExternalPort: ipLease.ExternalPort,
+					Protocol:     ipLease.Protocol,
+					IP:           ipLease.IP,
+				})
+
+				result.IPs[ipLease.ServiceName] = entries
+			}
+
 		}
 
 		hasForwardedPorts := true // TODO - check manifest for this
-		var forwardedPorts map[string][]cltypes.ForwardedPortStatus
 		if hasForwardedPorts {
 			var err error
-			forwardedPorts, err = cclient.ForwardedPortStatus(ctx, leaseID)
+			result.ForwardedPorts, err = cclient.ForwardedPortStatus(ctx, leaseID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
 
-		services, err := cclient.LeaseStatus(ctx, leaseID)
+		var err error
+		result.Services, err = cclient.LeaseStatus(ctx, leaseID)
 		if err != nil {
 			if errors.Is(err, kubeClient.ErrNoDeploymentForLease) {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -541,11 +560,7 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 		}
 
 
-		result := LeaseStatus{
-			Services: services,
-			ForwardedPorts: forwardedPorts,
-			IPs: ipLeaseStatus,
-		}
+
 		writeJSON(log, w, result)
 	}
 }
