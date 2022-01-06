@@ -41,6 +41,7 @@ func (b *manifest) labels() map[string]string {
 }
 
 func (b *manifest) Create() (*akashv1.Manifest, error) {
+
 	obj, err := akashv1.NewManifest(b.mns, b.lid, b.group)
 	if err != nil {
 		return nil, err

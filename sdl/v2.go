@@ -292,6 +292,8 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 func (sdl *v2) Manifest() (manifest.Manifest, error) {
 	groups := make(map[string]*manifest.Group)
 
+	// TODO - include sdl.Endpoints
+
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 

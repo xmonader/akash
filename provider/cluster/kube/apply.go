@@ -179,6 +179,7 @@ func applyManifest(ctx context.Context, kc akashv1.Interface, b builder.Manifest
 
 	switch {
 	case err == nil:
+		// TODO - only run this update if it would change something
 		obj, err = b.Update(obj)
 		if err == nil {
 			_, err = kc.AkashV1().Manifests(b.NS()).Update(ctx, obj, metav1.UpdateOptions{})

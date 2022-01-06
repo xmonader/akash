@@ -221,11 +221,13 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 	ams := &manifest.Service{
 		Name:      ms.Name,
 		Image:     ms.Image,
+		Command:   nil, // TODO - store in CRD
 		Args:      ms.Args,
 		Env:       ms.Env,
 		Resources: res,
 		Count:     ms.Count,
 		Expose:    make([]manifest.ServiceExpose, 0, len(ms.Expose)),
+		Params:    nil, // TODO - store in CRD
 	}
 
 	for _, expose := range ms.Expose {
@@ -300,6 +302,7 @@ type ManifestServiceExpose struct {
 	// accepted hostnames
 	Hosts       []string                         `json:"hosts,omitempty"`
 	HTTPOptions ManifestServiceExposeHTTPOptions `json:"http_options,omitempty"`
+	IP string `json:"ip,omitempty"`
 }
 
 type ManifestServiceExposeHTTPOptions struct {
@@ -324,6 +327,15 @@ func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 		Service:      mse.Service,
 		Global:       mse.Global,
 		Hosts:        mse.Hosts,
+		HTTPOptions:  manifest.ServiceExposeHTTPOptions{
+			MaxBodySize: mse.HTTPOptions.MaxBodySize,
+			ReadTimeout: mse.HTTPOptions.ReadTimeout,
+			SendTimeout: mse.HTTPOptions.SendTimeout,
+			NextTries:   mse.HTTPOptions.NextTries,
+			NextTimeout: mse.HTTPOptions.NextTimeout,
+			NextCases:   mse.HTTPOptions.NextCases,
+		},
+		IP:           mse.IP,
 	}, nil
 }
 
@@ -335,6 +347,7 @@ func manifestServiceExposeFromAkash(amse manifest.ServiceExpose) ManifestService
 		Service:      amse.Service,
 		Global:       amse.Global,
 		Hosts:        amse.Hosts,
+		IP: amse.IP,
 		HTTPOptions: ManifestServiceExposeHTTPOptions{
 			MaxBodySize: amse.HTTPOptions.MaxBodySize,
 			ReadTimeout: amse.HTTPOptions.ReadTimeout,

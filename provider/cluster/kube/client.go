@@ -174,6 +174,7 @@ func (c *client) GetManifestGroup(ctx context.Context, lID mtypes.LeaseID) (bool
 		return false, akashv1.ManifestGroup{}, err
 	}
 
+
 	return true, obj.Spec.Group, nil
 }
 

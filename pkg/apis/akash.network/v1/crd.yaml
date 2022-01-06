@@ -80,6 +80,8 @@ spec:
                             items:
                               type: object
                               properties:
+                                ip:
+                                  type: string
                                 port:
                                   type: integer
                                   format: uint16
