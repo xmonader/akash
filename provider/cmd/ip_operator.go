@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-
+	"sync/atomic"
 	"time"
 
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
@@ -68,6 +68,7 @@ type ipOperator struct {
 	reservationsLock sync.Locker
 
 	providerSda clusterutil.ServiceDiscoveryAgent
+	barrier *barrier
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -104,9 +105,18 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	}
 	op.flagState()
 
-	op.log.Info("starting observation")
-	events, err := op.client.ObserveIPState(parentCtx)
+	// Get the present counts before starting
+	err = op.updateCounts(parentCtx)
 	if err != nil {
+		return err
+	}
+
+	op.log.Info("starting observation")
+	// Use a subcontext here for this, so it can be stopped when this function returns
+	ctx, cancel := context.WithCancel(parentCtx)
+	events, err := op.client.ObserveIPState(ctx)
+	if err != nil {
+		cancel()
 		return err
 	}
 
@@ -121,6 +131,8 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	isUpdating := true
 	updateCountsTicker := time.NewTicker(updateCountDelay)
 	defer updateCountsTicker.Stop()
+
+	op.barrier.enable()
 loop:
 	for {
 		eventsCopy := events
@@ -171,8 +183,19 @@ loop:
 			}
 		}
 	}
+	op.barrier.disable()
+	cancel()
+
+	ctxWithTimeout, timeoutCtxCancel := context.WithTimeout(parentCtx, time.Second * 30)
+	defer timeoutCtxCancel()
+
+	err = op.barrier.waitUntilClear(ctxWithTimeout)
+	if err != nil {
+		op.log.Error("failed waiting on barrier to clear", "err", err)
+	}
 
 	op.log.Info("ip operator done")
+
 	return exitError
 }
 
@@ -182,6 +205,8 @@ func (op *ipOperator) updateCounts(ctx context.Context) error {
 		return err
 	}
 
+	op.reservationsLock.Lock()
+	defer op.reservationsLock.Unlock()
 	op.inUse = inUse
 	op.available = available
 	op.log.Info("ip address inventory", "in-use", op.inUse, "available", op.available)
@@ -257,14 +282,14 @@ func getStateKeyFromEvent(ev ctypes.IPResourceEvent) string{
 	return getStateKey(ev.GetLeaseID(), ev.GetSharingKey(), ev.GetExternalPort())
 }
 
-func (op *ipOperator) decrInUse() uint {
+func (op *ipOperator) decrInUse() uint { // TODO - is this needed
 	if op.inUse != 0 {
 		op.inUse--
 	}
 	return op.inUse
 }
 
-func (op *ipOperator) incrInUse() uint {
+func (op *ipOperator) incrInUse() uint { // TODO - is this needed
 	op.inUse++
 	return op.inUse
 }
@@ -416,7 +441,11 @@ func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Req
 		return
 	}
 
-	op.log.Info("added reservation", "order-id", reservationRequest.OrderID, "quantity", reservationRequest.Quantity)
+	if reserved {
+		op.log.Info("added reservation", "order-id", reservationRequest.OrderID, "quantity", reservationRequest.Quantity)
+	} else {
+		op.log.Info("reservation not added", "order-id", reservationRequest.OrderID, "quantity", reservationRequest.Quantity)
+	}
 	rw.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(rw)
 	err = enc.Encode(reserved)
@@ -637,8 +666,19 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		reservations: make(map[string]ipReservationEntry),
 		reservationsLock: &sync.Mutex{},
 		providerSda: providerSda,
+		barrier: &barrier{},
 	}
 
+	retval.server.router.Use(func (next http.Handler) http.Handler {
+		return http.HandlerFunc(func (rw http.ResponseWriter, req *http.Request){
+			if !retval.barrier.enter() {
+				rw.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			next.ServeHTTP(rw, req)
+			retval.barrier.exit()
+		})
+	})
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
 	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
 
@@ -756,8 +796,9 @@ func (op *ipOperator) addReservation(orderID mtypes.OrderID, quantity uint) (boo
 		}
 	}
 
-	// TODO - refresh inUse beforehand  ?
-	if quantity > (available - op.inUse - qtyReserved) {
+	effectiveAvailable := (available - op.inUse - qtyReserved)
+	if quantity > effectiveAvailable {
+		op.log.Info("cannot make reservation due to capacity", "requested-quantity", quantity, "available", effectiveAvailable)
 		return false, nil
 	}
 
@@ -864,3 +905,48 @@ func (op *ipOperator) run(parentCtx context.Context) error {
 	op.mllbc.Stop()
 	return parentCtx.Err()
 }
+
+type barrier struct {
+	enabled int32
+	active int32
+}
+
+func (b *barrier) enable() {
+	atomic.StoreInt32(& b.enabled, 1)
+}
+
+func (b *barrier) disable() {
+	atomic.StoreInt32(& b.enabled, 0)
+}
+
+func (b *barrier) enter() bool {
+	isEnabled := atomic.LoadInt32(& b.enabled) == 1
+	if !isEnabled {
+		return false
+	}
+
+	atomic.AddInt32(& b.active, 1)
+	return true
+}
+
+func (b *barrier) exit() {
+	atomic.StoreInt32(& b.active, -1)
+}
+
+func (b *barrier) waitUntilClear(ctx context.Context) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			clear := 0 == atomic.LoadInt32(&b.active)
+			if clear {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+

@@ -83,7 +83,7 @@ func NewPreparedClient(log log.Logger, ns string, configPath string) (Client, er
 }
 
 func newClientWithSettings(logger log.Logger, ns string, configPath string, prepare bool) (Client, error) {
-	ctx := context.Background()
+	ctx := context.Background() // TODO - make this an argument
 
 	config, err := client_common.OpenKubeConfig(configPath, logger)
 	if err != nil {

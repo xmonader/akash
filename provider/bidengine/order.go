@@ -382,7 +382,7 @@ loop:
 		}
 
 		if o.bidPlaced {
-			o.log.Debug("closing bid")
+			o.log.Debug("closing bid", "order-id", o.orderID)
 			err := o.session.Client().Tx().Broadcast(ctx, &mtypes.MsgCloseBid{
 				BidID: mtypes.MakeBidID(o.orderID, o.session.Provider().Address()),
 			})
@@ -390,6 +390,7 @@ loop:
 				o.log.Error("closing bid", "err", err)
 				bidCounter.WithLabelValues("close", metricsutils.FailLabel).Inc()
 			} else {
+				o.log.Info("bid closed", "order-id", o.orderID)
 				bidCounter.WithLabelValues("close", metricsutils.SuccessLabel).Inc()
 			}
 		}

@@ -182,6 +182,7 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtyp
 	}
 
 	ipoc.log.Info("making IP reservation HTTP request", "method", req.Method, "url", req.URL)
+	// TODO - retry this with backoff for a brief period of time
 	response, err := ipoc.httpClient.Do(req)
 	if err != nil {
 		ipoc.log.Error("http request failed", "err", err)
@@ -198,6 +199,7 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtyp
 	dec := json.NewDecoder(response.Body)
 	err = dec.Decode(&reserved)
 	if err != nil {
+		ipoc.log.Error("could not JSON decode response from IP operator for reservation", "err", err)
 		return false, err
 	}
 
@@ -241,6 +243,7 @@ func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mt
 	}
 
 	ipoc.log.Info("making IP unreservation HTTP request", "method", req.Method, "url", req.URL)
+	// TODO - retry this for a long period of time
 	response, err := ipoc.httpClient.Do(req)
 	if err != nil {
 		ipoc.log.Error("http request failed", "err", err)

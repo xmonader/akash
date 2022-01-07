@@ -371,9 +371,12 @@ func (is *inventoryService) handleRequest(req inventoryRequest, state *inventory
 		}
 
 		if !reserved {
+			is.log.Error("ip address could not be reserved", "quantity", reservation.endpointQuantity)
 			req.ch <- inventoryResponse{err: ctypes.ErrInsufficientCapacity}
 			return
 		}
+
+		is.log.Info("ip addresses reserved", "quantity", reservation.endpointQuantity)
 	}
 
 	// Add the reservation to the list
@@ -398,8 +401,6 @@ func (is *inventoryService) run(reservationsArg []*reservation) {
 	t := time.NewTimer(time.Hour)
 	t.Stop()
 	defer t.Stop()
-
-	//var inventory ctypes.Inventory
 
 	// Run an inventory check immediately.
 	runch := is.runCheck(ctx)
