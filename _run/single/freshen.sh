@@ -13,6 +13,6 @@ make kind-configure-image
 make kind-upload-image
 
 make kustomize-install-provider
-#make kustomize-install-ip-operator
-#make kustomize-install-hostname-operator
+make kustomize-install-ip-operator
+make kustomize-install-hostname-operator
 

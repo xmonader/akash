@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gorilla/mux"
 	"github.com/ovrclk/akash/provider/cluster"
 	clusterClient "github.com/ovrclk/akash/provider/cluster/kube"
@@ -51,6 +52,7 @@ type ipOperator struct {
 	leasesIgnored *ignoreList
 	flagState prepareFlagFn
 	flagIgnoredLeases prepareFlagFn
+	providerAddr string
 
 	available uint
 	inUse uint
@@ -68,7 +70,18 @@ type ipOperator struct {
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
+	var err error
+	// TODO - tie this context to the lifecycle
 	ctx, cancel := context.WithCancel(parentCtx)
+	op.log.Info("getting provider address")
+
+	op.providerAddr, err = op.getProviderWalletAddress(ctx)
+	if err != nil {
+		cancel()
+		return err
+	}
+	op.log.Info("associated provider ", "addr", op.providerAddr)
+
 	op.log.Info("starting observation")
 
 	op.state = make(map[string]managedIp)
@@ -496,54 +509,7 @@ func (op *ipOperator) removeReservation(orderID mtypes.OrderID) error {
 	return nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator) {
-	retval := &ipOperator{
-		state:  make(map[string]managedIp),
-		client: client,
-		log:    logger,
-		server: newOperatorHttp(),
-		leasesIgnored: newIgnoreList(ilc),
-		mllbc: mllbc,
-		reservations: make(map[string]ipReservationEntry),
-		reservationsLock: &sync.Mutex{},
-		providerSda: providerSda,
-	}
-
-	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
-	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
-
-	// TODO - add auth based off TokenReview via k8s interface to below methods
-	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
-		clientID := req.Header.Get("X-Client-Id")
-		_ = clientID
-
-		if req.Method == http.MethodPost {
-			handleReservationPost(retval, rw, req)
-		} else if req.Method == http.MethodDelete {
-			handleReservationDelete(retval, rw, req)
-		} else {
-			handleReservationGet(retval, rw, req)
-		}
-
-
-	}).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
-
-
-	retval.server.router.HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
-		handleIPLeaseStatusGet(retval, rw, req)
-	}).Methods(http.MethodGet)
-	return retval
-}
-
-func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Request){
-
-	addr, err := op.providerSda.GetAddress(req.Context())
-	if err != nil {
-		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
-		return
-	}
-
-	// TODO - move this fetch code at least to a utility function or something
+func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, error) {
 	tlsDialer := tls.Dialer{
 		NetDialer: nil,
 		Config:    &tls.Config{
@@ -605,24 +571,29 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 		Timeout:       0,
 	}
 
-	statusUrl := fmt.Sprintf("https://%s:%d/status", addr.Target, addr.Port)
-	statusReq, err := http.NewRequestWithContext(req.Context(), http.MethodGet, statusUrl, nil)
+
+	addr, err := op.providerSda.GetAddress(ctx)
 	if err != nil {
-		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
-		return
+		op.log.Error("could not discover provider address", "error", err)
+		return "", err
+	}
+
+	statusUrl := fmt.Sprintf("https://%s:%d/status", addr.Target, addr.Port)
+	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusUrl, nil)
+	if err != nil {
+		return "", err
+
 	}
 	response, err := httpClient.Do(statusReq)
 	if err != nil {
-		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
-		return
+		op.log.Error("failed asking provider for status","error", err)
+		return "", err
 	}
 
 	if response.StatusCode != http.StatusOK {
 		op.log.Error("provider status API failed", "status", response.StatusCode)
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
+		return "",err
 	}
-
 
 	statusData := struct{
 		Address string `json:"address"`
@@ -630,22 +601,67 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	decoder := json.NewDecoder(response.Body)
 	err = decoder.Decode(&statusData)
 	if err != nil {
-		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
-		return
+		op.log.Error("could not decode provider status API response", "error", err)
+		return "", err
+
 	}
 	providerAddr := statusData.Address
-	if len(providerAddr) == 0 {
-		op.log.Error("provider status API did not include address information")
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
+
+	_, err = sdk.AccAddressFromBech32(providerAddr)
+	if err != nil {
+		op.log.Error("provider status API returned invalid bech32 address", "provider-addr", providerAddr, "error", err)
+		return "", err
 	}
 
-	vars := mux.Vars(req)
+	return providerAddr, nil
+}
 
+func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator) {
+	retval := &ipOperator{
+		state:  make(map[string]managedIp),
+		client: client,
+		log:    logger,
+		server: newOperatorHttp(),
+		leasesIgnored: newIgnoreList(ilc),
+		mllbc: mllbc,
+		reservations: make(map[string]ipReservationEntry),
+		reservationsLock: &sync.Mutex{},
+		providerSda: providerSda,
+	}
+
+	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
+	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
+
+	// TODO - add auth based off TokenReview via k8s interface to below methods
+	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
+		clientID := req.Header.Get("X-Client-Id")
+		_ = clientID
+
+		if req.Method == http.MethodPost {
+			handleReservationPost(retval, rw, req)
+		} else if req.Method == http.MethodDelete {
+			handleReservationDelete(retval, rw, req)
+		} else {
+			handleReservationGet(retval, rw, req)
+		}
+
+
+	}).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
+
+
+	retval.server.router.HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
+		handleIPLeaseStatusGet(retval, rw, req)
+	}).Methods(http.MethodGet)
+	return retval
+}
+
+func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Request){
+	// Extract path variables, returning 404 if any are invalid
+	vars := mux.Vars(req)
 	dseqStr := vars["dseq"]
 	dseq, err := strconv.ParseUint(dseqStr, 10, 64)
 	if err != nil {
-		op.log.Info("could not parse path component as uint64","dseq", dseqStr, "error", err)
+		op.log.Error("could not parse path component as uint64","dseq", dseqStr, "error", err)
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -653,7 +669,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	gseqStr := vars["gseq"]
 	gseq, err := strconv.ParseUint(gseqStr, 10, 32)
 	if err != nil {
-		op.log.Info("could not parse path component as uint32","gseq", gseqStr, "error", err)
+		op.log.Error("could not parse path component as uint32","gseq", gseqStr, "error", err)
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -661,20 +677,25 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	oseqStr := vars["oseq"]
 	oseq, err := strconv.ParseUint(oseqStr, 10, 32)
 	if err != nil {
-		op.log.Info("could not parse path component as uint32","oseq", oseqStr, "error", err)
+		op.log.Error("could not parse path component as uint32","oseq", oseqStr, "error", err)
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	owner := vars["owner"] // TODO  - validate this is a bech32 addr
-
+	owner := vars["owner"]
+	_, err = sdk.AccAddressFromBech32(owner) // Validate this is a bech32 address
+	if err != nil {
+		op.log.Error("could not parse owner address as bech32", "onwer", owner, "error", err)
+		rw.WriteHeader(http.StatusNotFound)
+		return
+	}
 
 	leaseID := mtypes.LeaseID{
 		Owner:    owner,
 		DSeq:     dseq,
 		GSeq:     uint32(gseq),
 		OSeq:     uint32(oseq),
-		Provider: providerAddr,
+		Provider: op.providerAddr,
 	}
 
 	ipStatus, err := op.mllbc.GetIPAddressStatusForLease(req.Context(), leaseID)
@@ -691,7 +712,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 
 	rw.WriteHeader(http.StatusOK)
 	encoder := json.NewEncoder(rw)
-	// ipStaus is a slice of interface types, so it can't be encoded directly
+	// ipStatus is a slice of interface types, so it can't be encoded directly
 	responseData := make([]ipoptypes.LeaseIPStatus, len(ipStatus))
 	for i, v := range ipStatus {
 		responseData[i] = ipoptypes.LeaseIPStatus{
