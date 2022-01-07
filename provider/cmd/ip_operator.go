@@ -71,24 +71,21 @@ type ipOperator struct {
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	var err error
-	// TODO - tie this context to the lifecycle
-	ctx, cancel := context.WithCancel(parentCtx)
+
 	op.log.Info("getting provider address")
 
-	op.providerAddr, err = op.getProviderWalletAddress(ctx)
+	op.providerAddr, err = op.getProviderWalletAddress(parentCtx)
 	if err != nil {
-		cancel()
 		return err
 	}
 	op.log.Info("associated provider ", "addr", op.providerAddr)
 
-	op.log.Info("starting observation")
+
 
 	op.state = make(map[string]managedIp)
-
-	entries, err := op.mllbc.GetIPPassthroughs(ctx)
+	op.log.Info("fetching existing IP passthroughs")
+	entries, err := op.mllbc.GetIPPassthroughs(parentCtx)
 	if err != nil {
-		cancel()
 		return err
 	}
 	startupTime := time.Now()
@@ -106,9 +103,9 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	}
 	op.flagState()
 
-	events, err := op.client.ObserveIPState(ctx)
+	op.log.Info("starting observation")
+	events, err := op.client.ObserveIPState(parentCtx)
 	if err != nil {
-		cancel()
 		return err
 	}
 
@@ -119,20 +116,20 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	prepareTicker := time.NewTicker(2 * time.Second /*op.cfg.webRefreshInterval*/)
 	defer prepareTicker.Stop()
 
-	const updateCountDelay = time.Second * 5
+	const updateCountDelay = time.Millisecond * 1500
 	isUpdating := true
-	updateCountsTicker := time.NewTicker(updateCountDelay) // TODO - can we make this delay lower ?
+	updateCountsTicker := time.NewTicker(updateCountDelay) 
 	defer updateCountsTicker.Stop()
 loop:
 	for {
 		eventsCopy := events
-		if isUpdating {
+		if isUpdating { // While updating counts, disable processing events by using a nil channel
 			eventsCopy = nil
 		}
 		prepareData := false
 		select {
-		case <-ctx.Done():
-			exitError = ctx.Err()
+		case <-parentCtx.Done():
+			exitError = parentCtx.Err()
 			break loop
 
 		case ev, ok := <-eventsCopy:
@@ -140,7 +137,7 @@ loop:
 				exitError = errObservationStopped
 				break loop
 			}
-			err = op.applyEvent(ctx, ev)
+			err = op.applyEvent(parentCtx, ev)
 			if err != nil {
 				op.log.Error("failed applying event", "err", err)
 				exitError = err
@@ -158,7 +155,7 @@ loop:
 
 		case <-updateCountsTicker.C:
 			updateCountsTicker.Stop()
-			err = op.updateCounts()
+			err = op.updateCounts(parentCtx)
 			if err != nil {
 				exitError = err
 				break loop
@@ -174,13 +171,12 @@ loop:
 		}
 	}
 
-	cancel()
 	op.log.Info("ip operator done")
 	return exitError
 }
 
-func (op *ipOperator) updateCounts() error {
-	inUse, available, err := op.mllbc.GetIPAddressUsage()
+func (op *ipOperator) updateCounts(ctx context.Context) error {
+	inUse, available, err := op.mllbc.GetIPAddressUsage(ctx)
 	if err != nil {
 		return err
 	}

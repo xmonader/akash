@@ -38,7 +38,7 @@ const (
 
 
 type Client interface {
-	GetIPAddressUsage() (uint, uint, error)
+	GetIPAddressUsage(ctx context.Context) (uint, uint, error)
 	GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]ctypes.IPLeaseState, error)
 
 	CreateIPPassthrough(ctx context.Context, lID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error
@@ -157,8 +157,7 @@ can get stuff like this to access metal lb metrics
  */
 
 
-func (c *client) GetIPAddressUsage() (uint, uint,  error) {
-	ctx := context.Background() // TODO - make this method take a context
+func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint,  error) {
 	metalAddr, err := c.sda.GetAddress(ctx)
 	if err != nil {
 		return math.MaxUint32,math.MaxUint32, err
