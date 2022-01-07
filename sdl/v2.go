@@ -472,7 +472,7 @@ func (sdl *v2) validate() error {
 						}
 
 						// Endpoint exists. Now check for port collisions across a single endpoint, port, & protocol
-						portKey := fmt.Sprintf("%s-%d-%s", to.IP, serviceExpose.Port, serviceExpose.Proto)
+						portKey := fmt.Sprintf("%s-%d-%s", to.IP, serviceExpose.As, serviceExpose.Proto)
 						otherServiceName, inUse := portsUsed[portKey]
 						if inUse {
 							return fmt.Errorf("%w: IP endpoint %q port: %d protocol: %s specified by service %q already in use by %q", errSDLInvalid, to.IP, serviceExpose.Port, serviceExpose.Proto, svcName, otherServiceName)

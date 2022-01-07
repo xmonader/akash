@@ -362,6 +362,7 @@ loop:
 	o.sub.Close()
 
 	// cancel reservation
+	// TODO - make sure this unreserves any IP addresses not in use
 	if !won {
 		if clusterch != nil {
 			result := <-clusterch

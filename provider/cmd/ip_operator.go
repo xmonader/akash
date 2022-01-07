@@ -42,6 +42,7 @@ type ipReservationEntry struct {
 	OrderID mtypes.OrderID
 	Quantity uint
 	QuantityAllocated uint
+	NamesAllocated map[string]interface{}
 }
 
 type ipOperator struct {
@@ -118,7 +119,7 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 
 	const updateCountDelay = time.Millisecond * 1500
 	isUpdating := true
-	updateCountsTicker := time.NewTicker(updateCountDelay) 
+	updateCountsTicker := time.NewTicker(updateCountDelay)
 	defer updateCountsTicker.Stop()
 loop:
 	for {
@@ -315,13 +316,26 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		op.state[uid] = entry
 		op.flagState()
 
-		reservationEntry := op.reservations[leaseID.String()]
+		orderID := leaseID.OrderID().String()
+		reservationEntry := op.reservations[orderID]
 		if 0 == reservationEntry.Quantity {
 			op.log.Info("no reservation for IP", "leaseID", leaseID)
 		} else {
-			reservationEntry.QuantityAllocated++
+			if reservationEntry.NamesAllocated== nil {
+				reservationEntry.NamesAllocated = make(map[string]interface{})
+			}
+
+			// Each IP can have 1 or more connections associated with it. Only increment
+			// the count here if there has been no connection added for this one yet
+			_, exists := reservationEntry.NamesAllocated[ev.GetSharingKey()]
+			if !exists {
+				reservationEntry.QuantityAllocated++
+				reservationEntry.NamesAllocated[ev.GetSharingKey()] = struct{}{}
+			}
+
 			// TODO - bounds check this to make sure we don't somehow go over ?!
-			op.reservations[leaseID.String()] = reservationEntry
+			op.reservations[orderID] = reservationEntry
+			op.log.Info("reservation updated", "reserved", reservationEntry.Quantity, "allocated", reservationEntry.QuantityAllocated)
 		}
 	}
 
@@ -402,7 +416,7 @@ func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Req
 		return
 	}
 
-	op.log.Info("added reservation", "order-id", reservationRequest.OrderID)
+	op.log.Info("added reservation", "order-id", reservationRequest.OrderID, "quantity", reservationRequest.Quantity)
 	rw.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(rw)
 	err = enc.Encode(reserved)
