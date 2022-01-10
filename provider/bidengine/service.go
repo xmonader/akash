@@ -143,6 +143,9 @@ func (s *service) run(existingOrders []mtypes.OrderID) {
 	defer s.lc.ShutdownCompleted()
 	defer s.sub.Close()
 	s.updateOrderManagerGauge()
+
+	// TODO - attempt to wait for configured operators to be online & responsive before proceeding
+
 	for _, orderID := range existingOrders {
 		key := mquery.OrderPath(orderID)
 		s.session.Log().Debug("creating catchup order", "order", key)

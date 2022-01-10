@@ -256,6 +256,9 @@ func (s *service) run(deployments []ctypes.Deployment) {
 	defer s.sub.Close()
 
 	s.updateDeploymentManagerGauge()
+
+	// TODO - attempt to wait for configured operators to be online & responsive before proceeding
+
 	for _, deployment := range deployments {
 		key := deployment.LeaseID()
 		mgroup := deployment.ManifestGroup()

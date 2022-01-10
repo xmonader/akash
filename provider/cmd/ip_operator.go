@@ -672,6 +672,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 	retval.server.router.Use(func (next http.Handler) http.Handler {
 		return http.HandlerFunc(func (rw http.ResponseWriter, req *http.Request){
 			if !retval.barrier.enter() {
+				retval.log.Error("barrier is locked, can't service request", "path", req.URL.Path)
 				rw.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
@@ -876,7 +877,7 @@ func IPOperatorCmd() *cobra.Command {
 
 func (op *ipOperator) run(parentCtx context.Context) error {
 	op.log.Debug("ip operator start")
-	const threshold = 3 * time.Second
+	const threshold = 500 * time.Millisecond
 	for {
 		lastAttempt := time.Now()
 		err := op.monitorUntilError(parentCtx)

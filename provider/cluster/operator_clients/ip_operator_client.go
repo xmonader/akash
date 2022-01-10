@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/avast/retry-go"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
@@ -165,6 +166,16 @@ func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
 
+func ipOperatorClientRetry(ctx context.Context) []retry.Option {
+	return []retry.Option{
+		retry.Context(ctx),
+		retry.DelayType(retry.BackOffDelay),
+		retry.MaxDelay(time.Second * 120), // TODO - lower me
+		retry.Attempts(15),
+		retry.LastErrorOnly(true),
+	}
+}
+
 func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error) {
 	reqBody := ipoptypes.IPReservationRequest{
 		OrderID:  orderID,
@@ -182,17 +193,25 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtyp
 	}
 
 	ipoc.log.Info("making IP reservation HTTP request", "method", req.Method, "url", req.URL)
-	// TODO - retry this with backoff for a brief period of time
-	response, err := ipoc.httpClient.Do(req)
-	if err != nil {
-		ipoc.log.Error("http request failed", "err", err)
-		ipoc.sda.DiscoverNow()
-		return false, err
-	}
-	ipoc.log.Info("ip reservation request result", "status", response.StatusCode)
+	var response *http.Response
+	err = retry.Do(func () error {
+		var err error
+		response, err = ipoc.httpClient.Do(req)
+		if err != nil {
+			ipoc.log.Error("http request failed", "err", err)
+			ipoc.sda.DiscoverNow()
+			return err
+		}
+		ipoc.log.Info("ip reservation request result", "status", response.StatusCode)
 
-	if response.StatusCode != http.StatusOK {
-		return false, extractRemoteError(response.Body)
+		if response.StatusCode != http.StatusOK {
+			return extractRemoteError(response.Body)
+		}
+		return nil
+	}, ipOperatorClientRetry(ctx)...)
+
+	if err != nil {
+		return false, err
 	}
 
 	reserved := false
@@ -243,17 +262,17 @@ func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mt
 	}
 
 	ipoc.log.Info("making IP unreservation HTTP request", "method", req.Method, "url", req.URL)
-	// TODO - retry this for a long period of time
-	response, err := ipoc.httpClient.Do(req)
-	if err != nil {
-		ipoc.log.Error("http request failed", "err", err)
-		ipoc.sda.DiscoverNow()
-		return err
-	}
-
-	if response.StatusCode != http.StatusNoContent {
-		return extractRemoteError(response.Body)
-	}
-
-	return nil
+	err = retry.Do(func () error {
+		response, err := ipoc.httpClient.Do(req)
+		if err != nil {
+			ipoc.log.Error("http request failed", "err", err)
+			ipoc.sda.DiscoverNow()
+			return err
+		}
+		if response.StatusCode != http.StatusNoContent {
+			return extractRemoteError(response.Body)
+		}
+		return nil
+	}, ipOperatorClientRetry(ctx)...)
+	return err
 }
