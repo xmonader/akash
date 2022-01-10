@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"github.com/ovrclk/akash/provider/operator/waiter"
 
 	"github.com/boz/go-lifecycle"
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
@@ -59,7 +60,7 @@ type Service interface {
 }
 
 // NewService returns new Service instance
-func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, client Client, cfg Config) (Service, error) {
+func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, client Client, waiter waiter.OperatorWaiter, cfg Config) (Service, error) {
 	log := session.Log().With("module", "provider-cluster", "cmp", "service")
 
 	lc := lifecycle.New()
@@ -114,6 +115,7 @@ func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, cl
 		log:    log,
 		lc:     lc,
 		config: cfg,
+		waiter: waiter,
 	}
 
 	go s.lc.WatchContext(ctx)
@@ -139,6 +141,8 @@ type service struct {
 
 	log log.Logger
 	lc  lifecycle.Lifecycle
+
+	waiter waiter.OperatorWaiter
 
 	config Config
 }
@@ -257,7 +261,16 @@ func (s *service) run(deployments []ctypes.Deployment) {
 
 	s.updateDeploymentManagerGauge()
 
-	// TODO - attempt to wait for configured operators to be online & responsive before proceeding
+	// wait for configured operators to be online & responsive before proceeding
+	ctx := context.Background() // TODO - tie to lifecycle
+	err := s.waiter.WaitForAll(ctx)
+	if err != nil {
+		s.lc.ShutdownInitiated(err)
+		return
+	}
+
+	// TODO - a switch inside this logic that skips bidding on requests with leased IPs if the
+	// operator is not running
 
 	for _, deployment := range deployments {
 		key := deployment.LeaseID()

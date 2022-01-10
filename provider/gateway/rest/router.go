@@ -86,6 +86,13 @@ func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ipopcl
 		})
 	})
 
+	// GET /address
+	// provider status endpoint does not require authentication
+	router.HandleFunc("/address",
+		createAddressHandler(log, addr)).
+		Methods("GET")
+
+
 	// GET /status
 	// provider status endpoint does not require authentication
 	router.HandleFunc("/status",
@@ -389,6 +396,17 @@ func leaseShellHandler(log log.Logger, mclient pmanifest.Client, cclient cluster
 		if terminalSizeUpdate != nil {
 			close(terminalSizeUpdate)
 		}
+	}
+}
+
+func createAddressHandler(log log.Logger, providerAddr sdk.Address) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		data := struct {
+			Address string `json:"address"`
+		}{
+			Address: providerAddr.String(),
+		}
+		writeJSON(log, w, data)
 	}
 }
 

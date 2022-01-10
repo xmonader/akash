@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/operator/waiter"
 	"io"
 	"net/http"
 	"os"
@@ -603,15 +604,20 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	config.RPCQueryTimeout = rpcQueryTimeout
 	config.CachedResultMaxAge = cachedResultMaxAge
 
-	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, config)
-	if err != nil {
-		return err
-	}
-
 	ipOperatorClient, err := operator_clients.NewIPOperatorClient(log)
 	if err != nil {
 		return err
 	}
+
+	hostnameOperatorClient := operator_clients.NewHostnameOperatorClient(log)
+	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), log, hostnameOperatorClient, ipOperatorClient)
+
+	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, operatorWaiter, config)
+	if err != nil {
+		return err
+	}
+
+
 
 	gateway, err := gwrest.NewServer(
 		ctx,
@@ -665,6 +671,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	err = group.Wait()
 	broadcaster.Close()
 	ipOperatorClient.Stop()
+	hostnameOperatorClient.Stop()
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

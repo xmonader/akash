@@ -22,11 +22,13 @@ var (
 )
 
 type IPOperatorClient interface{
+	Check(ctx context.Context) error
 	GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error)
 	ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error)
 	UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error
 	GetIPAddressStatus(ctx context.Context, leaseID mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error)
 	Stop()
+	String() string
 }
 
 
@@ -34,6 +36,14 @@ type IPOperatorClient interface{
 type ipOperatorNullClient struct{}
 func NullClient() IPOperatorClient {
 	return ipOperatorNullClient{}
+}
+
+func (v ipOperatorNullClient) String() string {
+	return fmt.Sprintf("<%T>", v)
+}
+
+func (_ ipOperatorNullClient) Check(ctx context.Context) (error) {
+	return errNotImplemented
 }
 
 func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error) {
@@ -59,7 +69,6 @@ func (_ ipOperatorNullClient) GetIPAddressStatus(ctx context.Context, id mtypes.
 func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
 	sda := clusterutil.NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp")
 
-	const requestTimeout = time.Second * 30 // TODO - configurable
 	dialer := net.Dialer{
 		Timeout:       requestTimeout,
 		Deadline:      time.Time{},
@@ -102,15 +111,20 @@ func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
 			Timeout:       requestTimeout,
 		},
 		log: logger.With("operator","ip"),
-	}, nil
+	}, nil // TODO - can we possibly return an error here?
 }
 
-func (ipoc ipOperatorClient) Stop() {
+func (ipoc *ipOperatorClient) String() string {
+	return fmt.Sprintf("<%T %p>", ipoc, ipoc)
+}
+
+func (ipoc *ipOperatorClient) Stop() {
 	ipoc.sda.Stop()
 }
 
 const (
 	ipOperatorReservationsPath = "/reservations"
+	ipOperatorHealthPath = "/health"
 )
 
 /* A client to talk to the Akash implementation of the IP Operator via HTTP */
@@ -119,6 +133,28 @@ type ipOperatorClient struct {
 	httpClient *http.Client
 	log log.Logger
 }
+
+var errNotAlive = errors.New("ip operator is not yet alive")
+
+func (ipoc *ipOperatorClient) Check(ctx context.Context) error {
+	req, err := ipoc.newRequest(ctx, http.MethodGet, ipOperatorHealthPath, nil)
+	if err != nil {
+		return err
+	}
+
+	response, err := ipoc.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	ipoc.log.Info("check result", "status", response.StatusCode)
+
+	if response.StatusCode != http.StatusOK {
+		return errNotAlive
+	}
+
+	return nil
+}
+
 
 func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, path string, body io.Reader) (*http.Request, error) {
 	addr, err := ipoc.sda.GetAddress(ctx)

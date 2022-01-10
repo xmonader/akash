@@ -87,6 +87,7 @@ func newInventoryService(
 	deployments []ctypes.Deployment,
 ) (*inventoryService, error) {
 
+	// TODO - pass this in, don't create our own here
 	ipOperatorClient, err := operator_clients.NewIPOperatorClient(log)
 	if err != nil {
 		return nil, err

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
+	"io"
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	"net/http"
 	"strings"
@@ -465,6 +466,11 @@ func newHostnameOperator(logger log.Logger, client cluster.Client, config hostna
 
 	op.flagIgnoreListData = op.server.addPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
 	op.flagHostnamesData = op.server.addPreparedEndpoint("/managed-hostnames",op.prepareHostnamesData)
+
+	op.server.router.HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(rw, "OK")
+	})
 
 	return op
 }

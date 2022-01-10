@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -81,8 +82,6 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 		return err
 	}
 	op.log.Info("associated provider ", "addr", op.providerAddr)
-
-
 
 	op.state = make(map[string]managedIp)
 	op.log.Info("fetching existing IP passthroughs")
@@ -617,7 +616,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		return "", err
 	}
 
-	statusUrl := fmt.Sprintf("https://%s:%d/status", addr.Target, addr.Port)
+	statusUrl := fmt.Sprintf("https://%s:%d/address", addr.Target, addr.Port)
 	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusUrl, nil)
 	if err != nil {
 		return "", err
@@ -680,8 +679,14 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 			retval.barrier.exit()
 		})
 	})
+
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
 	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
+
+	retval.server.router.HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(rw, "OK")
+	})
 
 	// TODO - add auth based off TokenReview via k8s interface to below methods
 	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){

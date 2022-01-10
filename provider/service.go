@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	clustertypes "github.com/ovrclk/akash/provider/cluster/types"
+	"github.com/ovrclk/akash/provider/operator/waiter"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -55,7 +56,14 @@ type Service interface {
 // NewService creates and returns new Service instance
 // Simple wrapper around various services needed for running a provider.
 
-func NewService(ctx context.Context, cctx client.Context, accAddr sdk.AccAddress, session session.Session, bus pubsub.Bus, cclient cluster.Client, cfg Config) (Service, error) {
+func NewService(ctx context.Context,
+	cctx client.Context,
+	accAddr sdk.AccAddress,
+	session session.Session,
+	bus pubsub.Bus,
+	cclient cluster.Client,
+	waiter waiter.OperatorWaiter,
+	cfg Config) (Service, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	session = session.ForModule("provider-service")
@@ -72,7 +80,7 @@ func NewService(ctx context.Context, cctx client.Context, accAddr sdk.AccAddress
 	clusterConfig.DeploymentIngressDomain = cfg.DeploymentIngressDomain
 	clusterConfig.ClusterSettings = cfg.ClusterSettings
 
-	cluster, err := cluster.NewService(ctx, session, bus, cclient, clusterConfig)
+	cluster, err := cluster.NewService(ctx, session, bus, cclient, waiter, clusterConfig)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -87,7 +95,7 @@ func NewService(ctx context.Context, cctx client.Context, accAddr sdk.AccAddress
 		return nil, ErrClusterReadTimedout
 	}
 
-	bidengine, err := bidengine.NewService(ctx, session, cluster, bus, bidengine.Config{
+	bidengine, err := bidengine.NewService(ctx, session, cluster, bus, waiter, bidengine.Config{
 		PricingStrategy: cfg.BidPricingStrategy,
 		Deposit:         cfg.BidDeposit,
 		BidTimeout:      cfg.BidTimeout,
