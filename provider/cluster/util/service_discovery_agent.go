@@ -128,6 +128,7 @@ func (sda *serviceDiscoveryAgent) handleRequest(req serviceDiscoveryRequest) {
 }
 
 func (sda *serviceDiscoveryAgent) setResult(addrs []net.SRV, err error){
+	sda.log.Debug("satisfying pending requests", "qty", len(sda.pendingRequests))
 	for _, pendingRequest := range sda.pendingRequests {
 		if err == nil {
 			v := append([]net.SRV{}, addrs...)
@@ -137,7 +138,7 @@ func (sda *serviceDiscoveryAgent) setResult(addrs []net.SRV, err error){
 		}
 	}
 
-	sda.pendingRequests = nil
+	sda.pendingRequests = nil // Clear pending requests
 	if err == nil {
 		sda.result = addrs
 	} else {

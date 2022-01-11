@@ -617,8 +617,6 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-
-
 	gateway, err := gwrest.NewServer(
 		ctx,
 		log,

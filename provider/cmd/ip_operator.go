@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/avast/retry-go"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gorilla/mux"
 	"github.com/ovrclk/akash/provider/cluster"
@@ -20,6 +21,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -131,6 +133,7 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	updateCountsTicker := time.NewTicker(updateCountDelay)
 	defer updateCountsTicker.Stop()
 
+	op.log.Info("barrier can now be passed")
 	op.barrier.enable()
 loop:
 	for {
@@ -156,6 +159,7 @@ loop:
 				break loop
 			}
 
+			// TODO - why are we delaying this at all?
 			updateCountsTicker.Reset(updateCountDelay)
 			isUpdating = true
 		case <-pruneTicker.C:
@@ -167,6 +171,7 @@ loop:
 
 		case <-updateCountsTicker.C:
 			updateCountsTicker.Stop()
+			// TODO - is this a blocking call that could be an issue? 
 			err = op.updateCounts(parentCtx)
 			if err != nil {
 				exitError = err
@@ -548,8 +553,19 @@ func (op *ipOperator) removeReservation(orderID mtypes.OrderID) error {
 }
 
 func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, error) {
+	netDialer := &net.Dialer{
+		Timeout:       10 * time.Second,
+		Deadline:      time.Time{},
+		LocalAddr:     nil,
+		DualStack:     false,
+		FallbackDelay: 0,
+		KeepAlive:     0,
+		Resolver:      nil,
+		Cancel:        nil,
+		Control:       nil,
+	}
 	tlsDialer := tls.Dialer{
-		NetDialer: nil,
+		NetDialer: netDialer,
 		Config:    &tls.Config{
 			Rand:                        nil,
 			Time:                        nil,
@@ -606,9 +622,8 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		},
 		CheckRedirect: nil,
 		Jar:           nil,
-		Timeout:       0,
+		Timeout:       30 * time.Second,
 	}
-
 
 	addr, err := op.providerSda.GetAddress(ctx)
 	if err != nil {
@@ -620,11 +635,27 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusUrl, nil)
 	if err != nil {
 		return "", err
-
 	}
-	response, err := httpClient.Do(statusReq)
-	if err != nil {
-		op.log.Error("failed asking provider for status","error", err)
+
+	retryOptions := []retry.Option{
+		retry.Context(ctx),
+		retry.DelayType(retry.BackOffDelay),
+		retry.MaxDelay(time.Second * 120), // TODO - lower me
+		retry.Attempts(15),
+		retry.LastErrorOnly(true),
+	}
+
+	var response *http.Response
+	err = retry.Do(func () error {
+		var err error
+		response, err = httpClient.Do(statusReq)
+		if err != nil {
+			op.log.Error("failed asking provider for status", "error", err)
+			return err
+		}
+		return nil
+	}, retryOptions...)
+	if err == nil {
 		return "", err
 	}
 
