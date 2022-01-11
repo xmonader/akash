@@ -76,7 +76,7 @@ func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, cl
 		return nil, err
 	}
 
-	inventory, err := newInventoryService(cfg, log, lc.ShuttingDown(), sub, client, deployments)
+	inventory, err := newInventoryService(cfg, log, lc.ShuttingDown(), sub, client, waiter, deployments)
 	if err != nil {
 		sub.Close()
 		return nil, err

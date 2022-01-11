@@ -329,8 +329,6 @@ func (sewsn serviceExposeWithServiceName) idIP() string {
 }
 
 func (dm *deploymentManager) doDeploy() ([]string, error) {
-	var err error
-
 	allHostnames := util.AllHostnamesOfManifestGroup(*dm.mgroup)
 	// Either reserve the hostnames, or confirm that they already are held
 

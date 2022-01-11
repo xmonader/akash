@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/operator/waiter"
 	"sync/atomic"
 	"time"
 
@@ -76,6 +77,8 @@ type inventoryService struct {
 	availableExternalPorts uint
 
 	ipOperator operator_clients.IPOperatorClient
+
+	waiter waiter.OperatorWaiter
 }
 
 func newInventoryService(
@@ -84,6 +87,7 @@ func newInventoryService(
 	donech <-chan struct{},
 	sub pubsub.Subscriber,
 	client Client,
+	waiter waiter.OperatorWaiter,
 	deployments []ctypes.Deployment,
 ) (*inventoryService, error) {
 
@@ -111,10 +115,9 @@ func newInventoryService(
 		lc:                     lifecycle.New(),
 		availableExternalPorts: config.InventoryExternalPortQuantity,
 		ipOperator: ipOperatorClient,
+		waiter: waiter,
 	}
 
-	// TODO - from deployments somehow we need to extract out information about the IP addreseses that
-	// are currently in use & notify the IP addr operator so it can update its reservations
 	reservations := make([]*reservation, 0, len(deployments))
 	for _, d := range deployments {
 		reservations = append(reservations, newReservation(d.LeaseID().OrderID(), d.ManifestGroup()))
@@ -392,11 +395,36 @@ func (is *inventoryService) handleRequest(req inventoryRequest, state *inventory
 func (is *inventoryService) run(reservationsArg []*reservation) {
 	defer is.lc.ShutdownCompleted()
 	defer is.sub.Close()
+
+	// TODO - tie to lifecycle
 	ctx, cancel := context.WithCancel(context.Background())
 
 	state := &inventoryServiceState{
 		inventory:    nil,
 		reservations: reservationsArg,
+	}
+	// wait on the operators to be ready
+	err := is.waiter.WaitForAll(ctx)
+	if err != nil {
+		is.lc.ShutdownInitiated(err)
+		cancel()
+		return
+	}
+
+	// For each existing reservation create a eservation in the IP address operator
+	for _, reservation := range state.reservations {
+		if 0 != reservation.endpointQuantity {
+			reserved, err := is.ipOperator.ReserveIPAddress(ctx, reservation.order, reservation.endpointQuantity)
+			if err != nil {
+				is.lc.ShutdownInitiated(err)
+				cancel()
+				return
+			}
+			if !reserved {
+				// TODO - what are we supposed to do here? CLose the reservation
+				panic("boom, can't create reservation")
+			}
+		}
 	}
 
 	// Create a timer to trigger periodic inventory checks
