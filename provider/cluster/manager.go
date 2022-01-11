@@ -336,6 +336,7 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// TODO - standardize this behavior into a utility function
 	// Weird hack to tie this context to the lifecycle of the parent service, so this doesn't
 	// block forever or anything like that
 	go func() {

@@ -113,6 +113,8 @@ func newInventoryService(
 		ipOperator: ipOperatorClient,
 	}
 
+	// TODO - from deployments somehow we need to extract out information about the IP addreseses that
+	// are currently in use & notify the IP addr operator so it can update its reservations
 	reservations := make([]*reservation, 0, len(deployments))
 	for _, d := range deployments {
 		reservations = append(reservations, newReservation(d.LeaseID().OrderID(), d.ManifestGroup()))
