@@ -119,7 +119,7 @@ func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, cl
 	}
 
 	go s.lc.WatchContext(ctx)
-	go s.run(deployments)
+	go s.run(ctx, deployments)
 
 	return s, nil
 }
@@ -255,14 +255,13 @@ func (s *service) updateDeploymentManagerGauge() {
 	deploymentManagerGauge.Set(float64(len(s.managers)))
 }
 
-func (s *service) run(deployments []ctypes.Deployment) {
+func (s *service) run(ctx context.Context, deployments []ctypes.Deployment) {
 	defer s.lc.ShutdownCompleted()
 	defer s.sub.Close()
 
 	s.updateDeploymentManagerGauge()
 
 	// wait for configured operators to be online & responsive before proceeding
-	ctx := context.Background() // TODO - tie to lifecycle
 	err := s.waiter.WaitForAll(ctx)
 	if err != nil {
 		s.lc.ShutdownInitiated(err)

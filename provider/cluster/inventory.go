@@ -123,8 +123,11 @@ func newInventoryService(
 		reservations = append(reservations, newReservation(d.LeaseID().OrderID(), d.ManifestGroup()))
 	}
 
+	// TODO - tie to lifecycle
+	ctx, _ := TieContextToChannel(context.Background(), donech)
+
 	go is.lc.WatchChannel(donech)
-	go is.run(reservations)
+	go is.run(ctx, reservations)
 
 	return is, nil
 }
@@ -347,7 +350,7 @@ type inventoryServiceState struct {
 	reservations []*reservation
 }
 
-func (is *inventoryService) handleRequest(req inventoryRequest, state *inventoryServiceState){
+func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequest, state *inventoryServiceState){
 
 	// TODO - decompose to a pre-step and post-steps
 
@@ -369,7 +372,6 @@ func (is *inventoryService) handleRequest(req inventoryRequest, state *inventory
 
 	if reservation.endpointQuantity != 0 {
 		// TODO - move this to its own goroutine
-		ctx := context.Background() // TODO - tie me to lifecycle
 		reserved, err := is.ipOperator.ReserveIPAddress(ctx, req.order, reservation.endpointQuantity)
 		if err != nil {
 			req.ch <- inventoryResponse{err: err}
@@ -392,12 +394,9 @@ func (is *inventoryService) handleRequest(req inventoryRequest, state *inventory
 
 }
 
-func (is *inventoryService) run(reservationsArg []*reservation) {
+func (is *inventoryService) run(ctx context.Context, reservationsArg []*reservation) {
 	defer is.lc.ShutdownCompleted()
 	defer is.sub.Close()
-
-	// TODO - tie to lifecycle
-	ctx, cancel := context.WithCancel(context.Background())
 
 	state := &inventoryServiceState{
 		inventory:    nil,
@@ -407,7 +406,6 @@ func (is *inventoryService) run(reservationsArg []*reservation) {
 	err := is.waiter.WaitForAll(ctx)
 	if err != nil {
 		is.lc.ShutdownInitiated(err)
-		cancel()
 		return
 	}
 
@@ -417,7 +415,6 @@ func (is *inventoryService) run(reservationsArg []*reservation) {
 			reserved, err := is.ipOperator.ReserveIPAddress(ctx, reservation.order, reservation.endpointQuantity)
 			if err != nil {
 				is.lc.ShutdownInitiated(err)
-				cancel()
 				return
 			}
 			if !reserved {
@@ -493,7 +490,7 @@ loop:
 			}
 
 		case req := <-reserveChLocal:
-			is.handleRequest(req, state)
+			is.handleRequest(ctx, req, state)
 
 		case req := <-is.lookupch:
 			// lookup registration
@@ -534,7 +531,6 @@ loop:
 
 				// reclaim leased IPs if specified
 				if res.endpointQuantity != 0 {
-					ctx := context.Background() // TODO - move to own goroutine & tie to this lifecycle
 					err := is.ipOperator.UnreserveIPAddress(ctx, req.order) // TODO - retries on error
 					if err != nil {
 						is.log.Error("failed unreserving endpoints", "err", "order-id", req.order)
@@ -614,7 +610,6 @@ loop:
 
 		updateReservationMetrics(state.reservations)
 	}
-	cancel()
 
 	if runch != nil {
 		<-runch

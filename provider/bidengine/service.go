@@ -86,7 +86,7 @@ func NewService(ctx context.Context, session session.Session, cluster cluster.Cl
 	}
 
 	go s.lc.WatchContext(ctx)
-	go s.run(existingOrders)
+	go s.run(ctx, existingOrders)
 
 	return s, nil
 }
@@ -143,13 +143,12 @@ func (s *service) updateOrderManagerGauge() {
 	orderManagerGauge.Set(float64(len(s.orders)))
 }
 
-func (s *service) run(existingOrders []mtypes.OrderID) {
+func (s *service) run(ctx context.Context, existingOrders []mtypes.OrderID) {
 	defer s.lc.ShutdownCompleted()
 	defer s.sub.Close()
 	s.updateOrderManagerGauge()
 
 	// wait for configured operators to be online & responsive before proceeding
-	ctx := context.Background() // TODO - tie to lifecycle
 	err := s.waiter.WaitForAll(ctx)
 	if err != nil {
 		s.lc.ShutdownInitiated(err)

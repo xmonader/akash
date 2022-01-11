@@ -564,11 +564,15 @@ func (dm *deploymentManager) do(fn func() error) <-chan error {
 }
 
 func TieContextToLifecycle(parentCtx context.Context, lc lifecycle.Lifecycle) (context.Context, context.CancelFunc){
+	return TieContextToChannel(parentCtx, lc.ShuttingDown())
+}
+
+func TieContextToChannel(parentCtx context.Context, donech <- chan struct{}) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	go func () {
 		select{
-		case <- lc.ShuttingDown():
+		case <- donech:
 			cancel()
 		case <- ctx.Done():
 		}
