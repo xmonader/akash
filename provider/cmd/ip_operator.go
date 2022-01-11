@@ -171,7 +171,7 @@ loop:
 
 		case <-updateCountsTicker.C:
 			updateCountsTicker.Stop()
-			// TODO - is this a blocking call that could be an issue? 
+			// TODO - is this a blocking call that could be an issue?
 			err = op.updateCounts(parentCtx)
 			if err != nil {
 				exitError = err

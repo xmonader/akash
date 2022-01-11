@@ -75,8 +75,6 @@ type deploymentManager struct {
 	hostnameService clustertypes.HostnameServiceClient
 
 	config Config
-
-	serviceShuttingDown <-chan struct{}
 }
 
 func newDeploymentManager(s *service, lease mtypes.LeaseID, mgroup *manifest.Group) *deploymentManager {
@@ -96,13 +94,13 @@ func newDeploymentManager(s *service, lease mtypes.LeaseID, mgroup *manifest.Gro
 		lc:                  lifecycle.New(),
 		hostnameService:     s.HostnameService(),
 		config:              s.config,
-		serviceShuttingDown: s.lc.ShuttingDown(),
 		currentHostnames:    make(map[string]struct{}),
 		currentIPs: make(map[string]serviceExposeWithServiceName),
 	}
 
-	go dm.lc.WatchChannel(dm.serviceShuttingDown)
-	go dm.run()
+	ctx, _ := TieContextToLifecycle(context.Background(), s.lc)
+
+	go dm.run(ctx)
 
 	go func() {
 		<-dm.lc.Done()
@@ -130,13 +128,13 @@ func (dm *deploymentManager) teardown() error {
 	}
 }
 
-func (dm *deploymentManager) handleUpdate() <-chan error {
+func (dm *deploymentManager) handleUpdate(ctx context.Context) <-chan error {
 	switch dm.state {
 	case dsDeployActive:
 		dm.state = dsDeployPending
 	case dsDeployComplete:
 		// start update
-		return dm.startDeploy()
+		return dm.startDeploy(ctx)
 	case dsDeployPending, dsTeardownActive, dsTeardownPending, dsTeardownComplete:
 		// do nothing
 	}
@@ -144,11 +142,11 @@ func (dm *deploymentManager) handleUpdate() <-chan error {
 	return nil
 }
 
-func (dm *deploymentManager) run() {
+func (dm *deploymentManager) run(ctx context.Context) {
 	defer dm.lc.ShutdownCompleted()
 	var shutdownErr error
 
-	runch := dm.startDeploy()
+	runch := dm.startDeploy(ctx)
 
 	defer func() {
 		err := dm.hostnameService.ReleaseHostnames(dm.lease)
@@ -166,7 +164,7 @@ loop:
 
 		case mgroup := <-dm.updatech:
 			dm.mgroup = mgroup
-			newch := dm.handleUpdate()
+			newch := dm.handleUpdate(ctx)
 			if newch != nil {
 				runch = newch
 			}
@@ -190,7 +188,7 @@ loop:
 					break loop
 				}
 				// start update
-				runch = dm.startDeploy()
+				runch = dm.startDeploy(ctx)
 			case dsDeployComplete:
 				panic(fmt.Sprintf("INVALID STATE: runch read on %v", dm.state))
 			case dsTeardownActive:
@@ -276,14 +274,14 @@ func (dm *deploymentManager) stopMonitor() {
 	}
 }
 
-func (dm *deploymentManager) startDeploy() <-chan error {
+func (dm *deploymentManager) startDeploy(ctx context.Context) <-chan error {
 	dm.stopMonitor()
 	dm.state = dsDeployActive
 
 	chErr := make(chan error, 1)
 
 	go func() {
-		hostnames, err := dm.doDeploy()
+		hostnames, err := dm.doDeploy(ctx)
 		if err != nil {
 			chErr <- err
 			return
@@ -328,22 +326,9 @@ func (sewsn serviceExposeWithServiceName) idIP() string {
 	return fmt.Sprintf("%s-%s-%d-%v", sewsn.name, sewsn.expose.IP, sewsn.expose.Port, sewsn.expose.Proto)
 }
 
-func (dm *deploymentManager) doDeploy() ([]string, error) {
+func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 	allHostnames := util.AllHostnamesOfManifestGroup(*dm.mgroup)
 	// Either reserve the hostnames, or confirm that they already are held
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// TODO - standardize this behavior into a utility function
-	// Weird hack to tie this context to the lifecycle of the parent service, so this doesn't
-	// block forever or anything like that
-	go func() {
-		select {
-		case <-dm.serviceShuttingDown:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
 	withheldHostnames, err := dm.hostnameService.ReserveHostnames(ctx, allHostnames, dm.lease)
 
 	if err != nil {
@@ -576,4 +561,18 @@ func (dm *deploymentManager) do(fn func() error) <-chan error {
 		ch <- fn()
 	}()
 	return ch
+}
+
+func TieContextToLifecycle(parentCtx context.Context, lc lifecycle.Lifecycle) (context.Context, context.CancelFunc){
+	ctx, cancel := context.WithCancel(parentCtx)
+
+	go func () {
+		select{
+		case <- lc.ShuttingDown():
+			cancel()
+		case <- ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
 }
