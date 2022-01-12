@@ -625,6 +625,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		Timeout:       30 * time.Second,
 	}
 
+	// Resolve the hostname & port
 	addr, err := op.providerSda.GetAddress(ctx)
 	if err != nil {
 		op.log.Error("could not discover provider address", "error", err)
@@ -640,8 +641,8 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	retryOptions := []retry.Option{
 		retry.Context(ctx),
 		retry.DelayType(retry.BackOffDelay),
-		retry.MaxDelay(time.Second * 120), // TODO - lower me
-		retry.Attempts(15),
+		retry.MaxDelay(time.Second * 15),
+		retry.Attempts(5),
 		retry.LastErrorOnly(true),
 	}
 
@@ -655,13 +656,14 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		}
 		return nil
 	}, retryOptions...)
-	if err == nil {
+
+	if err != nil {
 		return "", err
 	}
 
 	if response.StatusCode != http.StatusOK {
 		op.log.Error("provider status API failed", "status", response.StatusCode)
-		return "",err
+		return "", fmt.Errorf("provider status API returned status: %d", response.StatusCode)
 	}
 
 	statusData := struct{
