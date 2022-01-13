@@ -18,8 +18,6 @@ func (sp ServiceProtocol) ToString() string {
 	return string(sp)
 }
 
-
-
 // GetGroups returns a manifest with groups list
 func (m Manifest) GetGroups() []Group {
 	return m
@@ -45,6 +43,8 @@ func (g Group) GetResources() []types.Resources {
 			Count:     s.Count,
 		})
 	}
+
+
 	return resources
 }
 
@@ -91,6 +91,7 @@ type ServiceExpose struct {
 	Hosts        []string
 	HTTPOptions  ServiceExposeHTTPOptions
 	IP	string
+	EndpointSequenceNumber uint32
 }
 
 type ServiceExposeHTTPOptions struct {

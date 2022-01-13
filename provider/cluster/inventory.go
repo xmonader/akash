@@ -408,17 +408,19 @@ func (is *inventoryService) run(ctx context.Context, reservationsArg []*reservat
 		is.lc.ShutdownInitiated(err)
 		return
 	}
+	is.log.Info("starting with existing reservations", "qty", len(state.reservations))
 
-	// For each existing reservation create a eservation in the IP address operator
+	// For each existing reservation create a reservation in the IP address operator
 	for _, reservation := range state.reservations {
 		if 0 != reservation.endpointQuantity {
+			is.log.Info("creating IP address reservation for existing reservation", "order-id", reservation.OrderID())
 			reserved, err := is.ipOperator.ReserveIPAddress(ctx, reservation.order, reservation.endpointQuantity)
 			if err != nil {
 				is.lc.ShutdownInitiated(err)
 				return
 			}
 			if !reserved {
-				// TODO - what are we supposed to do here? CLose the reservation
+				// TODO - what are we supposed to do here? CLose the lease ?
 				panic("boom, can't create reservation")
 			}
 		}

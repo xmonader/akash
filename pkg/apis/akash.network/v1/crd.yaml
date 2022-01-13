@@ -80,6 +80,9 @@ spec:
                             items:
                               type: object
                               properties:
+                                endpoint_sequence_number:
+                                  type: number
+                                  format: uint32
                                 ip:
                                   type: string
                                 port:

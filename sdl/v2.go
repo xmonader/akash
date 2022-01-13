@@ -2,6 +2,7 @@ package sdl
 
 import (
 	"fmt"
+	providerUtil "github.com/ovrclk/akash/provider/cluster/util"
 	"path"
 	"sort"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/ovrclk/akash/manifest"
-	providerUtil "github.com/ovrclk/akash/provider/cluster/util"
 	types "github.com/ovrclk/akash/types/v1beta2"
 	dtypes "github.com/ovrclk/akash/x/deployment/types/v1beta2"
 )
@@ -187,11 +187,45 @@ type v2profiles struct {
 	Placement map[string]v2ProfilePlacement `yaml:"placement"`
 }
 
+func (sdl *v2) computeEndpointSequenceNumbers() map[string]uint32 {
+	var endpointNames []string
+
+	for _, serviceName := range v2DeploymentSvcNames(sdl.Deployments)  {
+
+		for _, expose := range sdl.Services[serviceName].Expose {
+			for _, to := range expose.To {
+				if to.Global && len(to.IP) == 0 {
+					continue
+				}
+
+				endpointNames = append(endpointNames, to.IP)
+			}
+		}
+	}
+
+	ipEndpointNames := make(map[string]uint32)
+	if len(endpointNames) == 0 {
+		return ipEndpointNames
+	}
+
+	// Make the assignment stable
+	sort.Strings(endpointNames)
+
+	// Start at zero, so the first assigned one is 1
+	endpointSeqNumber := uint32(0)
+	for _, name := range endpointNames {
+		endpointSeqNumber++
+		seqNo := endpointSeqNumber
+		ipEndpointNames[name] = seqNo
+	}
+
+	return ipEndpointNames
+}
+
 func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 	groups := make(map[string]*dtypes.GroupSpec)
 
-	ipEndpointNames := make(map[string]uint)
-	endpointSeqNumber := uint(0)
+	ipEndpointNames := sdl.computeEndpointSequenceNumbers()
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 
@@ -248,26 +282,24 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 						Hosts:        expose.Accept.Items,
 						IP: 		to.IP,
 					}
+
+					// Check to see if an IP endpoint is also specified
+					if v.Global && len(v.IP) != 0 {
+						seqNo := ipEndpointNames[v.IP]
+						v.EndpointSequenceNumber = seqNo
+						endpoints = append(endpoints,
+							types.Endpoint{Kind: types.Endpoint_LEASED_IP,
+							SequenceNumber: seqNo})
+					}
+
 					kind := types.Endpoint_RANDOM_PORT
 					if providerUtil.ShouldBeIngress(v) {
 						kind = types.Endpoint_SHARED_HTTP
 					}
 
 					endpoints = append(endpoints, types.Endpoint{Kind: kind})
-					// Check to see if an IP endpoint is also specified
-					if len(v.IP) != 0 {
-						seqNo, exists := ipEndpointNames[v.IP]
-						if !exists {
-							endpointSeqNumber++
-							seqNo = endpointSeqNumber
-							ipEndpointNames[v.IP] = seqNo
-						}
-						_ = seqNo // TODO assign into the endpoint type
-						endpoints = append(endpoints, types.Endpoint{Kind: types.Endpoint_LEASED_IP})
-					}
 				}
 			}
-
 
 			resources.Resources.Endpoints = endpoints
 			group.Resources = append(group.Resources, resources)
@@ -292,7 +324,7 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 func (sdl *v2) Manifest() (manifest.Manifest, error) {
 	groups := make(map[string]*manifest.Group)
 
-	// TODO - include sdl.Endpoints
+	ipEndpointNames := sdl.computeEndpointSequenceNumbers()
 
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
@@ -313,15 +345,9 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 			compute := sdl.Profiles.Compute[svcdepl.Profile]
 			svc := sdl.Services[svcName]
 
-			msvc := &manifest.Service{
-				Name:      svcName,
-				Image:     svc.Image,
-				Args:      svc.Args,
-				Env:       svc.Env,
-				Resources: toManifestResources(compute.Resources),
-				Count:     svcdepl.Count,
-				Command:   svc.Command,
-			}
+			manifestResources := toManifestResources(compute.Resources)
+
+			var manifestExpose []manifest.ServiceExpose
 
 			for _, expose := range svc.Expose {
 				proto, err := manifest.ParseServiceProtocol(expose.Proto)
@@ -336,7 +362,22 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 
 				if len(expose.To) != 0 {
 					for _, to := range expose.To {
-						msvc.Expose = append(msvc.Expose, manifest.ServiceExpose{
+
+						var seqNo uint32
+						if to.Global && len(to.IP) != 0 {
+							_, exists := sdl.Endpoints[to.IP]
+							if ! exists {
+								return nil, fmt.Errorf("unknown endpoint %q", to.IP)
+							}
+
+							seqNo = ipEndpointNames[to.IP]
+							manifestResources.Endpoints = append(manifestResources.Endpoints, types.Endpoint{
+								Kind:          types.Endpoint_LEASED_IP,
+								SequenceNumber: seqNo,
+							})
+						}
+
+						manifestExpose = append(manifestExpose, manifest.ServiceExpose{
 							Service:      to.Service,
 							Port:         expose.Port,
 							ExternalPort: expose.As,
@@ -345,10 +386,11 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 							Hosts:        expose.Accept.Items,
 							HTTPOptions:  httpOptions,
 							IP: to.IP,
+							EndpointSequenceNumber: seqNo,
 						})
 					}
 				} else { // Nothing explicitly set, fill in without any information from "expose.To"
-					msvc.Expose = append(msvc.Expose, manifest.ServiceExpose{
+					manifestExpose = append(manifestExpose, manifest.ServiceExpose{
 						Service:      "",
 						Port:         expose.Port,
 						ExternalPort: expose.As,
@@ -359,6 +401,17 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						IP: "",
 					})
 				}
+			}
+
+			msvc := manifest.Service{
+				Name:      svcName,
+				Image:     svc.Image,
+				Args:      svc.Args,
+				Env:       svc.Env,
+				Resources: manifestResources,
+				Count:     svcdepl.Count,
+				Command:   svc.Command,
+				Expose: manifestExpose,
 			}
 
 			if svc.Params != nil {
@@ -378,7 +431,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 				msvc.Params = params
 			}
 
-			// stable ordering
+			// stable ordering for the Expose portion
 			sort.Slice(msvc.Expose, func(i, j int) bool {
 				a, b := msvc.Expose[i], msvc.Expose[j]
 
@@ -401,7 +454,8 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 				return false
 			})
 
-			group.Services = append(group.Services, *msvc)
+
+			group.Services = append(group.Services, msvc)
 		}
 	}
 

@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 
@@ -53,6 +52,7 @@ func (m Manifest) Deployment() (ctypes.Deployment, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return deployment{lid: lid, group: group}, nil
 }
 
@@ -171,6 +171,8 @@ func manifestGroupFromAkash(m *manifest.Group) (ManifestGroup, error) {
 		Services: make([]ManifestService, 0, len(m.Services)),
 	}
 
+
+
 	for _, svc := range m.Services {
 		service, err := manifestServiceFromAkash(svc)
 		if err != nil {
@@ -272,7 +274,9 @@ func manifestServiceFromAkash(ams manifest.Service) (ManifestService, error) {
 	}
 
 	for _, expose := range ams.Expose {
-		ms.Expose = append(ms.Expose, manifestServiceExposeFromAkash(expose))
+		newExpose := manifestServiceExposeFromAkash(expose)
+
+		ms.Expose = append(ms.Expose, newExpose)
 	}
 
 	if ams.Params != nil {
@@ -303,6 +307,7 @@ type ManifestServiceExpose struct {
 	Hosts       []string                         `json:"hosts,omitempty"`
 	HTTPOptions ManifestServiceExposeHTTPOptions `json:"http_options,omitempty"`
 	IP string `json:"ip,omitempty"`
+	EndpointSequenceNumber uint32 `json:"endpoint_sequence_number"`
 }
 
 type ManifestServiceExposeHTTPOptions struct {
@@ -317,7 +322,6 @@ type ManifestServiceExposeHTTPOptions struct {
 func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 	proto, err := manifest.ParseServiceProtocol(mse.Proto)
 	if err != nil {
-		fmt.Printf("foobar: %q\n", mse.Proto)
 		return manifest.ServiceExpose{}, err
 	}
 	return manifest.ServiceExpose{
@@ -327,6 +331,7 @@ func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 		Service:      mse.Service,
 		Global:       mse.Global,
 		Hosts:        mse.Hosts,
+		EndpointSequenceNumber: mse.EndpointSequenceNumber,
 		HTTPOptions:  manifest.ServiceExposeHTTPOptions{
 			MaxBodySize: mse.HTTPOptions.MaxBodySize,
 			ReadTimeout: mse.HTTPOptions.ReadTimeout,
@@ -348,6 +353,7 @@ func manifestServiceExposeFromAkash(amse manifest.ServiceExpose) ManifestService
 		Global:       amse.Global,
 		Hosts:        amse.Hosts,
 		IP: amse.IP,
+		EndpointSequenceNumber: amse.EndpointSequenceNumber,
 		HTTPOptions: ManifestServiceExposeHTTPOptions{
 			MaxBodySize: amse.HTTPOptions.MaxBodySize,
 			ReadTimeout: amse.HTTPOptions.ReadTimeout,
@@ -393,6 +399,7 @@ func (ru ResourceUnits) toAkash() (types.ResourceUnits, error) {
 			Quantity: types.NewResourceValue(memory),
 		},
 		Storage: storage,
+		Endpoints: nil, // TODO - how to reconstruct this value here? how do we get sequence number back?
 	}, nil
 }
 

@@ -450,6 +450,7 @@ func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 
 		externalPort := clusterutil.ExposeExternalPort(serviceExpose.expose)
 		port := serviceExpose.expose.Port
+
 		err = dm.client.DeclareIP(ctx, dm.lease, serviceExpose.name, uint32(port), uint32(externalPort), serviceExpose.expose.Proto, sharingKey)
 
 		if err != nil {
