@@ -160,7 +160,6 @@ func (m ManifestGroup) toAkash() (manifest.Group, error) {
 		}
 		am.Services = append(am.Services, asvc)
 	}
-
 	return am, nil
 }
 
@@ -220,7 +219,7 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 		return manifest.Service{}, err
 	}
 
-	ams := &manifest.Service{
+	ams := manifest.Service{
 		Name:      ms.Name,
 		Image:     ms.Image,
 		Command:   nil, // TODO - store in CRD
@@ -238,6 +237,13 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 			return manifest.Service{}, err
 		}
 		ams.Expose = append(ams.Expose, value)
+
+		if len(value.IP) != 0 {
+			res.Endpoints = append(res.Endpoints, types.Endpoint{
+				Kind: types.Endpoint_LEASED_IP,
+				SequenceNumber: value.EndpointSequenceNumber,
+			})
+		}
 	}
 
 	if ms.Params != nil {
@@ -254,7 +260,8 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 		}
 	}
 
-	return *ams, nil
+	ams.Resources = res
+	return ams, nil
 }
 
 func manifestServiceFromAkash(ams manifest.Service) (ManifestService, error) {

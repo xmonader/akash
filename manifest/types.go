@@ -44,7 +44,6 @@ func (g Group) GetResources() []types.Resources {
 		})
 	}
 
-
 	return resources
 }
 
