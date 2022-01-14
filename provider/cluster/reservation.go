@@ -20,6 +20,7 @@ type reservation struct {
 	resources atypes.ResourceGroup
 	allocated bool
 	endpointQuantity uint
+	ipsConfirmed bool
 }
 
 var _ ctypes.Reservation = (*reservation)(nil)

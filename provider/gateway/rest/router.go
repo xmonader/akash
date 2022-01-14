@@ -545,7 +545,7 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 		var ipLeaseStatus []ipoptypes.LeaseIPStatus
 		if hasLeasedIPs {
 			log.Debug("querying for IP address status", "lease-id", leaseID)
-			ipLeaseStatus, err = ipopclient.GetIPAddressStatus(req.Context(), leaseID)
+			ipLeaseStatus, err = ipopclient.GetIPAddressStatus(req.Context(), leaseID.OrderID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

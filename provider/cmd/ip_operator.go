@@ -56,6 +56,7 @@ type ipOperator struct {
 	leasesIgnored *ignoreList
 	flagState prepareFlagFn
 	flagIgnoredLeases prepareFlagFn
+	flagUsage prepareFlagFn
 	providerAddr string
 
 	available uint
@@ -63,7 +64,7 @@ type ipOperator struct {
 
 	mllbc metallb.Client
 
-	// TODO - is this going to need to be persisted somehow?
+	// TODO - is this going to need to be persisted somehow? NOPE
 	// The provider would basically be 'confused' if this operator restarted
 	// and lost this data. Can we figure this out by just looking at the bids
 	// currently open on the network by this provider ?
@@ -115,8 +116,14 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	op.log.Info("starting observation")
 	// Use a subcontext here for this, so it can be stopped when this function returns
 	ctx, cancel := context.WithCancel(parentCtx)
+	// TODO - why the heck does this need its own context ?
 	events, err := op.client.ObserveIPState(ctx)
 	if err != nil {
+		cancel()
+		return err
+	}
+
+	if err := op.server.prepareAll(); err != nil {
 		cancel()
 		return err
 	}
@@ -132,6 +139,8 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	isUpdating := true
 	updateCountsTicker := time.NewTicker(updateCountDelay)
 	defer updateCountsTicker.Stop()
+
+
 
 	op.log.Info("barrier can now be passed")
 	op.barrier.enable()
@@ -190,7 +199,7 @@ loop:
 	op.barrier.disable()
 	cancel()
 
-	ctxWithTimeout, timeoutCtxCancel := context.WithTimeout(parentCtx, time.Second * 30)
+	ctxWithTimeout, timeoutCtxCancel := context.WithTimeout(context.Background(), time.Second * 30)
 	defer timeoutCtxCancel()
 
 	err = op.barrier.waitUntilClear(ctxWithTimeout)
@@ -213,6 +222,8 @@ func (op *ipOperator) updateCounts(ctx context.Context) error {
 	defer op.reservationsLock.Unlock()
 	op.inUse = inUse
 	op.available = available
+
+	op.flagUsage()
 	op.log.Info("ip address inventory", "in-use", op.inUse, "available", op.available)
 	return nil
 }
@@ -375,10 +386,26 @@ func (op *ipOperator) webRouter() http.Handler {
 	return op.server.router
 }
 
+func (op *ipOperator) prepareUsage(pd *preparedResult) error {
+	op.reservationsLock.Lock()
+	defer op.reservationsLock.Unlock()
+	value := ipoptypes.IPAddressUsage{
+		Available: op.available,
+		InUse:     op.inUse,
+	}
 
-func (op *ipOperator) prepareIgnoredLeases(pd *preparedResult) error {
-	op.log.Debug("preparing ignore-list")
-	return op.leasesIgnored.prepare(pd)
+	buf := &bytes.Buffer{}
+	encoder := json.NewEncoder(buf)
+
+	err := encoder.Encode(value)
+	if err != nil {
+		return err
+	}
+
+	pd.set(buf.Bytes())
+
+
+	return nil
 }
 
 func (op *ipOperator) prepareState(pd *preparedResult) error {
@@ -715,6 +742,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 
 	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
 	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
+	retval.flagUsage = retval.server.addPreparedEndpoint("/usage", retval.prepareUsage)
 
 	retval.server.router.HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)

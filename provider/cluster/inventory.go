@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	"sync/atomic"
 	"time"
@@ -348,12 +349,23 @@ func updateReservationMetrics(reservations []*reservation) {
 type inventoryServiceState struct {
 	inventory ctypes.Inventory
 	reservations []*reservation
+	ipAddrUsage ipoptypes.IPAddressUsage
+
+
+}
+
+func countPendingIPs(state *inventoryServiceState) uint {
+	pending := uint(0)
+	for _, entry := range state.reservations {
+		if !entry.allocated || !entry.ipsConfirmed {
+			pending += entry.endpointQuantity
+		}
+	}
+
+	return pending
 }
 
 func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequest, state *inventoryServiceState){
-
-	// TODO - decompose to a pre-step and post-steps
-
 	// convert the resources to the committed amount
 	resourcesToCommit := is.resourcesToCommit(req.resources)
 	// create new registration if capacity available
@@ -361,30 +373,20 @@ func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequ
 
 	is.log.Debug("reservation requested", "order", req.order, "resources", req.resources)
 
-	err := state.inventory.Adjust(reservation)
+	if reservation.endpointQuantity != 0 {
+		numIPUnused := state.ipAddrUsage.Available - state.ipAddrUsage.InUse
+		numIPUnused -= countPendingIPs(state)
+		if reservation.endpointQuantity > numIPUnused {
+			is.log.Info("insufficient number of IP addresses available", "order", req.order)
+		}
+	}
 
+	err := state.inventory.Adjust(reservation)
 	if err != nil {
 		is.log.Info("insufficient capacity for reservation", "order", req.order)
 		inventoryRequestsCounter.WithLabelValues("reserve", "insufficient-capacity").Inc()
 		req.ch <- inventoryResponse{err: err}
 		return
-	}
-
-	if reservation.endpointQuantity != 0 {
-		// TODO - move this to its own goroutine
-		reserved, err := is.ipOperator.ReserveIPAddress(ctx, req.order, reservation.endpointQuantity)
-		if err != nil {
-			req.ch <- inventoryResponse{err: err}
-			return
-		}
-
-		if !reserved {
-			is.log.Error("ip address could not be reserved", "quantity", reservation.endpointQuantity)
-			req.ch <- inventoryResponse{err: ctypes.ErrInsufficientCapacity}
-			return
-		}
-
-		is.log.Info("ip addresses reserved", "quantity", reservation.endpointQuantity)
 	}
 
 	// Add the reservation to the list
@@ -402,28 +404,13 @@ func (is *inventoryService) run(ctx context.Context, reservationsArg []*reservat
 		inventory:    nil,
 		reservations: reservationsArg,
 	}
+	is.log.Info("starting with existing reservations", "qty", len(state.reservations))
+
 	// wait on the operators to be ready
 	err := is.waiter.WaitForAll(ctx)
 	if err != nil {
 		is.lc.ShutdownInitiated(err)
 		return
-	}
-	is.log.Info("starting with existing reservations", "qty", len(state.reservations))
-
-	// For each existing reservation create a reservation in the IP address operator
-	for _, reservation := range state.reservations {
-		if 0 != reservation.endpointQuantity {
-			is.log.Info("creating IP address reservation for existing reservation", "order-id", reservation.OrderID())
-			reserved, err := is.ipOperator.ReserveIPAddress(ctx, reservation.order, reservation.endpointQuantity)
-			if err != nil {
-				is.lc.ShutdownInitiated(err)
-				return
-			}
-			if !reserved {
-				// TODO - what are we supposed to do here? CLose the lease ?
-				panic("boom, can't create reservation")
-			}
-		}
 	}
 
 	// Create a timer to trigger periodic inventory checks
@@ -433,7 +420,7 @@ func (is *inventoryService) run(ctx context.Context, reservationsArg []*reservat
 	defer t.Stop()
 
 	// Run an inventory check immediately.
-	runch := is.runCheck(ctx)
+	runch := is.runCheck(ctx, state)
 
 	var fetchCount uint
 
@@ -446,7 +433,7 @@ func (is *inventoryService) run(ctx context.Context, reservationsArg []*reservat
 	updateInventory := func() {
 		reserveChLocal = nil
 		if runch == nil {
-			runch = is.runCheck(ctx)
+			runch = is.runCheck(ctx, state)
 		}
 	}
 
@@ -531,16 +518,6 @@ loop:
 					is.availableExternalPorts += reservationCountEndpoints(res)
 				}
 
-				// reclaim leased IPs if specified
-				if res.endpointQuantity != 0 {
-					err := is.ipOperator.UnreserveIPAddress(ctx, req.order) // TODO - retries on error
-					if err != nil {
-						is.log.Error("failed unreserving endpoints", "err", "order-id", req.order)
-						req.ch <- inventoryResponse{err: err}
-						continue loop
-					}
-				}
-
 				req.ch <- inventoryResponse{value: res}
 				is.log.Info("unreserve capacity complete", "order", req.order)
 				inventoryRequestsCounter.WithLabelValues("unreserve", "destroyed").Inc()
@@ -559,7 +536,9 @@ loop:
 
 			t.Stop()
 			// Run an inventory check
-			runch = is.runCheck(ctx)
+			updateInventory()
+
+
 
 		case res := <-runch:
 			// inventory check returned
@@ -581,7 +560,9 @@ loop:
 				close(is.readych)
 			}
 
-			state.inventory = res.Value().(ctypes.Inventory)
+			resultArray := res.Value().([]interface{})
+
+			state.inventory = resultArray[0].(ctypes.Inventory)
 			metrics := state.inventory.Metrics()
 
 			is.updateInventoryMetrics(metrics)
@@ -607,6 +588,23 @@ loop:
 				}
 			}
 
+			// Save IP address data
+			state.ipAddrUsage = resultArray[1].(ipoptypes.IPAddressUsage)
+
+			// Process confirmed IP addresses usage
+			confirmed := resultArray[2].([]mtypes.OrderID)
+
+			for _, confirmedOrderID := range confirmed {
+
+				for i, entry := range state.reservations {
+					if entry.order.Equals(confirmedOrderID) {
+						state.reservations[i].ipsConfirmed = true
+						is.log.Info("confirmed IP allocation", "orderID", confirmedOrderID)
+						break
+					}
+				}
+			}
+
 			resumeProcessingReservations()
 		}
 
@@ -620,9 +618,73 @@ loop:
 	is.ipOperator.Stop()
 }
 
-func (is *inventoryService) runCheck(ctx context.Context) <-chan runner.Result {
+type confirmationItem struct {
+	orderID mtypes.OrderID
+	expectedQuantity uint
+}
+
+func (is *inventoryService) runCheck(ctx context.Context, state *inventoryServiceState) <-chan runner.Result {
+	// Look for unconfirmed IPs, these are IPs that have an deployment created
+	// event and are marked allocated. But until the IP address operator has reported
+	// that it has actually created the associated resources, we need to consider the total number of end
+	// points as pending
+
+	confirm := make([]confirmationItem, 0)
+
+	for i, entry := range state.reservations {
+		// Skip anything already confirmed or not allocated
+		if entry.ipsConfirmed || !entry.allocated {
+			continue
+		}
+		if entry.endpointQuantity == 0 {
+			state.reservations[i].ipsConfirmed = true // No IPs, just mark it as confirmed implicitly
+		} else {
+			confirm = append(confirm, confirmationItem{
+				orderID: entry.OrderID(),
+				expectedQuantity: entry.endpointQuantity,
+			})
+		}
+	}
+
+	state = nil // Don't access state past here, it isn't safe
+
 	return runner.Do(func() runner.Result {
-		return runner.NewResult(is.client.Inventory(ctx))
+		inventoryResult, err := is.client.Inventory(ctx)
+
+		if err != nil {
+			return runner.NewResult(nil, err)
+		}
+
+		ipResult, err := is.ipOperator.GetIPAddressUsage(ctx)
+
+		if err != nil {
+			return runner.NewResult(nil, err)
+		}
+
+		var confirmed []mtypes.OrderID
+
+		for _, confirmItem := range confirm {
+			status, err := is.ipOperator.GetIPAddressStatus(ctx, confirmItem.orderID)
+			if err != nil {
+				// This error is not really fatal, so don't bail on this entirely. The other results
+				// retrieved in this code are still valid
+				is.log.Error("failed checking IP address usage", "orderID", confirmItem.orderID, "error", err)
+				break
+			}
+
+			numConfirmed := uint(len(status))
+			if numConfirmed == confirmItem.expectedQuantity {
+				confirmed = append(confirmed, confirmItem.orderID)
+			}
+		}
+
+		result := []interface{}{
+			inventoryResult,
+			ipResult,
+			confirmed,
+		}
+
+		return runner.NewResult(result, nil)
 	})
 }
 

@@ -24,9 +24,8 @@ var (
 type IPOperatorClient interface{
 	Check(ctx context.Context) error
 	GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error)
-	ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error)
-	UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error
-	GetIPAddressStatus(ctx context.Context, leaseID mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error)
+
+	GetIPAddressStatus(ctx context.Context, orderID mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error)
 	Stop()
 	String() string
 }
@@ -51,17 +50,9 @@ func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 }
 
 
-func (_ ipOperatorNullClient) ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error) {
-	return false, errNotImplemented
-}
-
-func (_ ipOperatorNullClient) UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error {
-	return errNotImplemented
-}
-
 func (_ ipOperatorNullClient) Stop(){}
 
-func (_ ipOperatorNullClient) GetIPAddressStatus(ctx context.Context, id mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error) {
+func (_ ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
 	return nil, errNotImplemented
 }
 
@@ -165,8 +156,8 @@ func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, pat
 	return http.NewRequest(method, remoteURL, body)
 }
 
-func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, leaseID mtypes.LeaseID) ([]ipoptypes.LeaseIPStatus, error) {
-	path := fmt.Sprintf("/ip-lease-status/%s/%d/%d/%d", leaseID.GetOwner(), leaseID.GetDSeq(), leaseID.GetGSeq(), leaseID.GetOSeq())
+func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, orderID mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
+	path := fmt.Sprintf("/ip-lease-status/%s/%d/%d/%d", orderID.GetOwner(), orderID.GetDSeq(), orderID.GetGSeq(), orderID.GetOSeq())
 	req, err := ipoc.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -184,7 +175,7 @@ func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, leaseID mt
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, extractRemoteError(response.Body)
+		return nil, extractRemoteError(response)
 	}
 
 	var result []ipoptypes.LeaseIPStatus
@@ -199,7 +190,28 @@ func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, leaseID mt
 }
 
 func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error) {
-	return ipoptypes.IPAddressUsage{}, errNotImplemented
+	req, err := ipoc.newRequest(ctx, http.MethodGet, "/usage", nil)
+	if err != nil {
+		return ipoptypes.IPAddressUsage{}, err
+	}
+
+	response, err := ipoc.httpClient.Do(req)
+	if err != nil {
+		return ipoptypes.IPAddressUsage{}, err
+	}
+	ipoc.log.Info("usage result", "status", response.StatusCode)
+	if response.StatusCode != http.StatusOK {
+		return ipoptypes.IPAddressUsage{}, extractRemoteError(response)
+	}
+
+	decoder := json.NewDecoder(response.Body)
+	result := ipoptypes.IPAddressUsage{}
+	err = decoder.Decode(&result)
+	if err != nil {
+		return ipoptypes.IPAddressUsage{}, err
+	}
+
+	return result, nil
 }
 
 func ipOperatorClientRetry(ctx context.Context) []retry.Option {
@@ -241,7 +253,7 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtyp
 		ipoc.log.Info("ip reservation request result", "status", response.StatusCode)
 
 		if response.StatusCode != http.StatusOK {
-			return extractRemoteError(response.Body)
+			return extractRemoteError(response)
 		}
 		return nil
 	}, ipOperatorClientRetry(ctx)...)
@@ -261,9 +273,9 @@ func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtyp
 	return reserved, nil
 }
 
-func extractRemoteError(reader io.Reader) error{
+func extractRemoteError(response *http.Response) error{
 	body := ipoptypes.IPOperatorErrorResponse{}
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(response.Body)
 	err := decoder.Decode(&body)
 	if err != nil {
 		return err
@@ -277,7 +289,7 @@ func extractRemoteError(reader io.Reader) error{
 		return ipoptypes.LookupError(body.Code)
 	}
 
-	return errors.New(body.Error)
+	return fmt.Errorf("status %d - %s", response.StatusCode, body.Error)
 }
 
 func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error {
@@ -306,7 +318,7 @@ func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mt
 			return err
 		}
 		if response.StatusCode != http.StatusNoContent {
-			return extractRemoteError(response.Body)
+			return extractRemoteError(response)
 		}
 		return nil
 	}, ipOperatorClientRetry(ctx)...)
