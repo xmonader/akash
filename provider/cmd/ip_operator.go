@@ -41,13 +41,6 @@ type managedIp struct {
 	lastChangedAt time.Time
 }
 
-type ipReservationEntry struct {
-	OrderID mtypes.OrderID
-	Quantity uint
-	QuantityAllocated uint
-	NamesAllocated map[string]interface{}
-}
-
 type ipOperator struct {
 	state map[string]managedIp
 	client cluster.Client
@@ -64,15 +57,10 @@ type ipOperator struct {
 
 	mllbc metallb.Client
 
-	// TODO - is this going to need to be persisted somehow? NOPE
-	// The provider would basically be 'confused' if this operator restarted
-	// and lost this data. Can we figure this out by just looking at the bids
-	// currently open on the network by this provider ?
-	reservations map[string]ipReservationEntry
-	reservationsLock sync.Locker
-
 	providerSda clusterutil.ServiceDiscoveryAgent
 	barrier *barrier
+
+	dataLock sync.Locker
 }
 
 func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
@@ -218,8 +206,8 @@ func (op *ipOperator) updateCounts(ctx context.Context) error {
 		return err
 	}
 
-	op.reservationsLock.Lock()
-	defer op.reservationsLock.Unlock()
+	op.dataLock.Lock()
+	defer op.dataLock.Unlock()
 	op.inUse = inUse
 	op.available = available
 
@@ -345,39 +333,23 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 		err = op.mllbc.CreateIPPassthrough(ctx, leaseID, directive)
 	}
 
-	if err == nil { // Update stored entry if everything went OK
-		entry.presentServiceName = ev.GetServiceName()
-		entry.presentLease = leaseID
-		entry.lastEvent = ev
-		entry.presentExternalPort = ev.GetExternalPort()
-		entry.presentSharingKey = ev.GetSharingKey()
-		entry.presentPort = ev.GetPort()
-		entry.lastChangedAt = time.Now()
-		op.state[uid] = entry
-		op.flagState()
-
-		orderID := leaseID.OrderID().String()
-		reservationEntry := op.reservations[orderID]
-		if 0 == reservationEntry.Quantity {
-			op.log.Info("no reservation for IP", "leaseID", leaseID)
-		} else {
-			if reservationEntry.NamesAllocated== nil {
-				reservationEntry.NamesAllocated = make(map[string]interface{})
-			}
-
-			// Each IP can have 1 or more connections associated with it. Only increment
-			// the count here if there has been no connection added for this one yet
-			_, exists := reservationEntry.NamesAllocated[ev.GetSharingKey()]
-			if !exists {
-				reservationEntry.QuantityAllocated++
-				reservationEntry.NamesAllocated[ev.GetSharingKey()] = struct{}{}
-			}
-
-			// TODO - bounds check this to make sure we don't somehow go over ?!
-			op.reservations[orderID] = reservationEntry
-			op.log.Info("reservation updated", "reserved", reservationEntry.Quantity, "allocated", reservationEntry.QuantityAllocated)
-		}
+	if err != nil {
+		return err
 	}
+
+	 // Update stored entry
+	entry.presentServiceName = ev.GetServiceName()
+	entry.presentLease = leaseID
+	entry.lastEvent = ev
+	entry.presentExternalPort = ev.GetExternalPort()
+	entry.presentSharingKey = ev.GetSharingKey()
+	entry.presentPort = ev.GetPort()
+	entry.lastChangedAt = time.Now()
+	op.state[uid] = entry
+	op.flagState()
+
+	// TODO - log that update occurred
+
 
 	return err
 }
@@ -387,8 +359,8 @@ func (op *ipOperator) webRouter() http.Handler {
 }
 
 func (op *ipOperator) prepareUsage(pd *preparedResult) error {
-	op.reservationsLock.Lock()
-	defer op.reservationsLock.Unlock()
+	op.dataLock.Lock()
+	defer op.dataLock.Unlock()
 	value := ipoptypes.IPAddressUsage{
 		Available: op.available,
 		InUse:     op.inUse,
@@ -450,75 +422,6 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 	return nil
 }
 
-
-func handleReservationPost(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(req.Body)
-	var reservationRequest ipoptypes.IPReservationRequest
-	err := decoder.Decode(&reservationRequest)
-	if err != nil {
-		handleHttpError(op, rw, req, err, http.StatusBadRequest)
-		return
-	}
-
-	if reservationRequest.Quantity == 0 {
-		handleHttpError(op, rw, req, ipoptypes.ErrReservationQuantityCannotBeZero, http.StatusBadRequest)
-		return
-	}
-
-	reserved, err := op.addReservation(reservationRequest.OrderID, reservationRequest.Quantity)
-	if err != nil {
-		op.log.Error("could not make reservation", "leaseID", reservationRequest.OrderID, "quantity", reservationRequest.Quantity, "error", err)
-		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
-		return
-	}
-
-	if reserved {
-		op.log.Info("added reservation", "order-id", reservationRequest.OrderID, "quantity", reservationRequest.Quantity)
-	} else {
-		op.log.Info("reservation not added", "order-id", reservationRequest.OrderID, "quantity", reservationRequest.Quantity)
-	}
-	rw.WriteHeader(http.StatusOK)
-	enc := json.NewEncoder(rw)
-	err = enc.Encode(reserved)
-	if err != nil {
-		op.log.Error("could not write reservation response", "error", err)
-	}
-}
-
-func (op *ipOperator) getReservationsCopy() (map[string]interface{}) {
-	// This method exists as a way to deep copy the data while holding the lock
-	// without blocking on anything external
-	op.reservationsLock.Lock()
-	defer op.reservationsLock.Unlock()
-	result := make(map[string]interface{})
-
-	for _, entry := range op.reservations {
-		result[entry.OrderID.String()] = struct {
-			OrderID mtypes.OrderID `json:"order-id"`
-			Quantity uint `json:"quantity"`
-			QuantityAllocated uint `json:"quantity-allocated"`
-		}{
-			OrderID: entry.OrderID,
-			Quantity: entry.Quantity,
-			QuantityAllocated: entry.QuantityAllocated,
-		}
-	}
-	return result
-}
-
-func handleReservationGet(op *ipOperator, rw http.ResponseWriter, _ *http.Request) {
-	rw.WriteHeader(http.StatusOK)
-	encoder := json.NewEncoder(rw)
-	err := encoder.Encode(op.getReservationsCopy())
-
-	if err != nil {
-		op.log.Error("could not write reservations response", "error", err)
-		// Already wrote the header, so just bail
-		return
-	}
-}
-
-
 func handleHttpError(op *ipOperator, rw http.ResponseWriter, req *http.Request, err error, status int){
 	op.log.Error("http request processing failed", "method", req.Method, "path", req.URL.Path, "err", err)
 	rw.WriteHeader(status)
@@ -538,45 +441,6 @@ func handleHttpError(op *ipOperator, rw http.ResponseWriter, req *http.Request, 
 	if err != nil {
 		op.log.Error("failed writing response body", "err", err)
 	}
-}
-
-func handleReservationDelete(op *ipOperator, rw http.ResponseWriter, req *http.Request){
-	decoder := json.NewDecoder(req.Body)
-	var deleteRequest ipoptypes.IPReservationDelete
-	err := decoder.Decode(&deleteRequest)
-
-	if err != nil {
-		handleHttpError(op, rw, req, err, http.StatusBadRequest)
-		return
-	}
-
-	err = op.removeReservation(deleteRequest.OrderID)
-	if err == nil {
-		op.log.Info("removed reservation", "order-id", deleteRequest.OrderID)
-		rw.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if errors.Is(err, ipoptypes.ErrNoSuchReservation) {
-		handleHttpError(op, rw, req, err, http.StatusBadRequest)
-		return
-	}
-
-	handleHttpError(op, rw, req, err, http.StatusInternalServerError)
-	return
-}
-
-func (op *ipOperator) removeReservation(orderID mtypes.OrderID) error {
-	op.reservationsLock.Lock()
-	defer op.reservationsLock.Unlock()
-
-	_, exists := op.reservations[orderID.String()]
-	if !exists {
-		return ipoptypes.ErrNoSuchReservation
-	}
-
-	delete(op.reservations, orderID.String())
-	return nil
 }
 
 func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, error) {
@@ -722,8 +586,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		server: newOperatorHttp(),
 		leasesIgnored: newIgnoreList(ilc),
 		mllbc: mllbc,
-		reservations: make(map[string]ipReservationEntry),
-		reservationsLock: &sync.Mutex{},
+		dataLock: &sync.Mutex{},
 		providerSda: providerSda,
 		barrier: &barrier{},
 	}
@@ -750,22 +613,6 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 	})
 
 	// TODO - add auth based off TokenReview via k8s interface to below methods
-	retval.server.router.HandleFunc("/reservations", func(rw http.ResponseWriter, req *http.Request){
-		clientID := req.Header.Get("X-Client-Id")
-		_ = clientID
-
-		if req.Method == http.MethodPost {
-			handleReservationPost(retval, rw, req)
-		} else if req.Method == http.MethodDelete {
-			handleReservationDelete(retval, rw, req)
-		} else {
-			handleReservationGet(retval, rw, req)
-		}
-
-
-	}).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
-
-
 	retval.server.router.HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
 		handleIPLeaseStatusGet(retval, rw, req)
 	}).Methods(http.MethodGet)
@@ -844,37 +691,6 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	if err != nil {
 		op.log.Error("failed writing JSON of ip status response", "error", err)
 	}
-}
-
-func (op *ipOperator) addReservation(orderID mtypes.OrderID, quantity uint) (bool, error) {
-	op.reservationsLock.Lock()
-	defer op.reservationsLock.Unlock()
-
-	qtyReserved := uint(0)
-	available := op.available
-	for _, entry := range op.reservations {
-		// Add the amount normally reserved
-		qtyReserved += entry.Quantity
-		// But take out the amount actually allocated
-		qtyReserved -= entry.QuantityAllocated
-
-		if entry.OrderID == orderID {
-			available += entry.Quantity
-		}
-	}
-
-	effectiveAvailable := (available - op.inUse - qtyReserved)
-	if quantity > effectiveAvailable {
-		op.log.Info("cannot make reservation due to capacity", "requested-quantity", quantity, "available", effectiveAvailable)
-		return false, nil
-	}
-
-	op.reservations[orderID.String()] = ipReservationEntry{
-		OrderID:  orderID,
-		Quantity: quantity,
-	}
-
-	return true, nil
 }
 
 func doIPOperator(cmd *cobra.Command) error {

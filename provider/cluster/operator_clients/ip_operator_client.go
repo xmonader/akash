@@ -1,7 +1,6 @@
 package operator_clients
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -114,7 +113,6 @@ func (ipoc *ipOperatorClient) Stop() {
 }
 
 const (
-	ipOperatorReservationsPath = "/reservations"
 	ipOperatorHealthPath = "/health"
 )
 
@@ -224,55 +222,6 @@ func ipOperatorClientRetry(ctx context.Context) []retry.Option {
 	}
 }
 
-func (ipoc *ipOperatorClient) ReserveIPAddress(ctx context.Context, orderID mtypes.OrderID, quantity uint) (bool, error) {
-	reqBody := ipoptypes.IPReservationRequest{
-		OrderID:  orderID,
-		Quantity: quantity,
-	}
-	buf := &bytes.Buffer{}
-	encoder := json.NewEncoder(buf)
-	err := encoder.Encode(reqBody)
-	if err != nil {
-		return false, err
-	}
-	req, err := ipoc.newRequest(ctx, http.MethodPost, ipOperatorReservationsPath, buf)
-	if err != nil {
-		return false, err
-	}
-
-	ipoc.log.Info("making IP reservation HTTP request", "method", req.Method, "url", req.URL)
-	var response *http.Response
-	err = retry.Do(func () error {
-		var err error
-		response, err = ipoc.httpClient.Do(req)
-		if err != nil {
-			ipoc.log.Error("http request failed", "err", err)
-			ipoc.sda.DiscoverNow()
-			return err
-		}
-		ipoc.log.Info("ip reservation request result", "status", response.StatusCode)
-
-		if response.StatusCode != http.StatusOK {
-			return extractRemoteError(response)
-		}
-		return nil
-	}, ipOperatorClientRetry(ctx)...)
-
-	if err != nil {
-		return false, err
-	}
-
-	reserved := false
-	dec := json.NewDecoder(response.Body)
-	err = dec.Decode(&reserved)
-	if err != nil {
-		ipoc.log.Error("could not JSON decode response from IP operator for reservation", "err", err)
-		return false, err
-	}
-
-	return reserved, nil
-}
-
 func extractRemoteError(response *http.Response) error{
 	body := ipoptypes.IPOperatorErrorResponse{}
 	decoder := json.NewDecoder(response.Body)
@@ -290,37 +239,4 @@ func extractRemoteError(response *http.Response) error{
 	}
 
 	return fmt.Errorf("status %d - %s", response.StatusCode, body.Error)
-}
-
-func (ipoc *ipOperatorClient) UnreserveIPAddress(ctx context.Context, orderID mtypes.OrderID) error {
-	reqBody := ipoptypes.IPReservationDelete{
-		OrderID: orderID,
-	}
-
-	buf := &bytes.Buffer{}
-	encoder := json.NewEncoder(buf)
-	err := encoder.Encode(reqBody)
-	if err != nil {
-		return err
-	}
-
-	req, err := ipoc.newRequest(ctx, http.MethodDelete, ipOperatorReservationsPath, buf)
-	if err != nil {
-		return err
-	}
-
-	ipoc.log.Info("making IP unreservation HTTP request", "method", req.Method, "url", req.URL)
-	err = retry.Do(func () error {
-		response, err := ipoc.httpClient.Do(req)
-		if err != nil {
-			ipoc.log.Error("http request failed", "err", err)
-			ipoc.sda.DiscoverNow()
-			return err
-		}
-		if response.StatusCode != http.StatusNoContent {
-			return extractRemoteError(response)
-		}
-		return nil
-	}, ipOperatorClientRetry(ctx)...)
-	return err
 }
