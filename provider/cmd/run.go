@@ -98,6 +98,7 @@ const (
 	FlagCachedResultMaxAge               = "cached-result-max-age"
 	FlagRPCQueryTimeout                  = "rpc-query-timeout"
 	FlagBidPriceIpScale = "bid-price-ip-scale"
+	FlagEnableIPOperator = "ip-operator"
 )
 
 var (
@@ -313,6 +314,12 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
+	cmd.Flags().Bool(FlagEnableIPOperator, false, "")
+	if err := viper.BindPFlag(FlagEnableIPOperator, cmd.Flags().Lookup(FlagEnableIPOperator)); err != nil {
+		return nil
+	}
+
+
 	return cmd
 }
 
@@ -429,6 +436,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	providerConfig := viper.GetString(FlagProviderConfig)
 	cachedResultMaxAge := viper.GetDuration(FlagCachedResultMaxAge)
 	rpcQueryTimeout := viper.GetDuration(FlagRPCQueryTimeout)
+	enableIPOperator := viper.GetBool(FlagEnableIPOperator)
 
 	var metricsRouter http.Handler
 	if len(metricsListener) != 0 {
@@ -606,9 +614,13 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	config.RPCQueryTimeout = rpcQueryTimeout
 	config.CachedResultMaxAge = cachedResultMaxAge
 
-	ipOperatorClient, err := operator_clients.NewIPOperatorClient(log)
-	if err != nil {
-		return err
+	// This value can be nil, the operator is not mandatory
+	var ipOperatorClient operator_clients.IPOperatorClient
+	if enableIPOperator {
+		ipOperatorClient, err = operator_clients.NewIPOperatorClient(log)
+		if err != nil {
+			return err
+		}
 	}
 
 	hostnameOperatorClient := operator_clients.NewHostnameOperatorClient(log)

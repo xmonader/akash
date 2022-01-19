@@ -532,14 +532,16 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 
 		// TODO - There must be a bug below, as no IP data is showing up in the lease status
 		hasLeasedIPs := false
-		manifestGroupSearchLoop:
-		for _, service := range manifestGroup.Services {
-			for _, expose := range service.Expose {
-				if 0 != len(expose.IP) {
-					hasLeasedIPs = true
-					break manifestGroupSearchLoop
+		if ipopclient != nil {
+			manifestGroupSearchLoop:
+				for _, service := range manifestGroup.Services {
+					for _, expose := range service.Expose {
+						if 0 != len(expose.IP) {
+							hasLeasedIPs = true
+							break manifestGroupSearchLoop
+						}
+					}
 				}
-			}
 		}
 
 		var ipLeaseStatus []ipoptypes.LeaseIPStatus
