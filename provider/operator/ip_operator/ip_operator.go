@@ -1,4 +1,4 @@
-package cmd
+package ip_operator
 
 import (
 	"bytes"
