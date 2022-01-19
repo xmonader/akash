@@ -123,26 +123,19 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	prepareTicker := time.NewTicker(2 * time.Second /*op.cfg.webRefreshInterval*/)
 	defer prepareTicker.Stop()
 
-	const updateCountDelay = time.Millisecond * 1500
-	isUpdating := true
-	updateCountsTicker := time.NewTicker(updateCountDelay)
-	defer updateCountsTicker.Stop()
 
 	op.log.Info("barrier can now be passed")
 	op.barrier.enable()
 loop:
 	for {
-		eventsCopy := events
-		if isUpdating { // While updating counts, disable processing events by using a nil channel
-			eventsCopy = nil
-		}
+		isUpdating := false
 		prepareData := false
 		select {
 		case <-parentCtx.Done():
 			exitError = parentCtx.Err()
 			break loop
 
-		case ev, ok := <-eventsCopy:
+		case ev, ok := <-events:
 			if !ok {
 				exitError = errObservationStopped
 				break loop
@@ -154,8 +147,6 @@ loop:
 				break loop
 			}
 
-			// TODO - why are we delaying this at all?
-			updateCountsTicker.Reset(updateCountDelay)
 			isUpdating = true
 		case <-pruneTicker.C:
 			op.leasesIgnored.prune()
@@ -163,9 +154,9 @@ loop:
 			prepareData = true
 		case <-prepareTicker.C:
 			prepareData = true
+		}
 
-		case <-updateCountsTicker.C:
-			updateCountsTicker.Stop()
+		if isUpdating {
 			err = op.updateCounts(parentCtx)
 			if err != nil {
 				exitError = err
