@@ -1,4 +1,4 @@
-package cmd
+package hostname_operator
 
 import (
 	"context"

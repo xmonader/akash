@@ -27,13 +27,12 @@ func RootCmd() *cobra.Command {
 	cmd.AddCommand(serviceStatusCmd())
 	cmd.AddCommand(RunCmd())
 	cmd.AddCommand(LeaseShellCmd())
-	cmd.AddCommand(HostnameOperatorCmd())
-	cmd.AddCommand(IPOperatorCmd())
+	//cmd.AddCommand(HostnameOperatorCmd())
+	//cmd.AddCommand(IPOperatorCmd())
 	cmd.AddCommand(MigrateHostnamesCmd())
 	cmd.AddCommand(AuthServerCmd())
 	cmd.AddCommand(AuthenticateCmd())
 	cmd.AddCommand(clusterNSCmd())
-	cmd.AddCommand(IPOperatorCmd())
 
 	return cmd
 }

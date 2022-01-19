@@ -1,15 +1,22 @@
-package cmd
+package operator_common
 
 import (
 	"github.com/gorilla/mux"
+	"io"
 	"net/http"
 )
 
-type prepareFlagFn func ()
-type prepareFn func (pd *preparedResult) error
+type PrepareFlagFn func ()
+type PrepareFn func (pd PreparedResult) error
 type preparedEntry struct{
 	data *preparedResult
-	prepare prepareFn
+	prepare PrepareFn
+}
+
+type OperatorHttp interface {
+	AddPreparedEndpoint(path string, prepare PrepareFn) PrepareFlagFn
+	GetRouter() *mux.Router
+	PrepareAll() error
 }
 
 type operatorHttp struct {
@@ -17,11 +24,16 @@ type operatorHttp struct {
 	results map[string]preparedEntry
 }
 
-func newOperatorHttp() *operatorHttp {
+func NewOperatorHttp() OperatorHttp {
 	retval := &operatorHttp{
 		router: mux.NewRouter(),
 		results: make(map[string]preparedEntry),
 	}
+
+	retval.router.HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(rw, "OK")
+	})
 
 	// TODO - install standardized version & version-extended endpoints
 	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request){
@@ -32,7 +44,11 @@ func newOperatorHttp() *operatorHttp {
 	return retval
 }
 
-func (opHttp *operatorHttp) addPreparedEndpoint(path string, prepare prepareFn) prepareFlagFn {
+func (opHttp *operatorHttp) GetRouter() *mux.Router {
+	return opHttp.router
+}
+
+func (opHttp *operatorHttp) AddPreparedEndpoint(path string, prepare PrepareFn) PrepareFlagFn {
 	_ ,exists := opHttp.results[path]
 	if exists {
 		panic("prepared result exists for path: " + path)
@@ -48,10 +64,10 @@ func (opHttp *operatorHttp) addPreparedEndpoint(path string, prepare prepareFn) 
 		servePreparedResult(rw, entry.data)
 	}).Methods(http.MethodGet)
 
-	return entry.data.flag
+	return entry.data.Flag
 }
 
-func (opHttp *operatorHttp) prepareAll() error {
+func (opHttp *operatorHttp) PrepareAll() error {
 	for _, entry := range opHttp.results {
 		if !entry.data.needsPrepare {
 			continue

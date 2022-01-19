@@ -15,12 +15,14 @@ import (
 	"github.com/ovrclk/akash/provider/cluster/kube/metallb"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
+	provider_flags "github.com/ovrclk/akash/provider/cmd/flags"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
 	"io"
+	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -29,6 +31,7 @@ import (
 	"time"
 
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
+	"github.com/ovrclk/akash/provider/operator/operator_common"
 )
 
 type managedIp struct {
@@ -45,11 +48,11 @@ type ipOperator struct {
 	state map[string]managedIp
 	client cluster.Client
 	log log.Logger
-	server *operatorHttp
-	leasesIgnored *ignoreList
-	flagState prepareFlagFn
-	flagIgnoredLeases prepareFlagFn
-	flagUsage prepareFlagFn
+	server operator_common.OperatorHttp
+	leasesIgnored operator_common.IgnoreList
+	flagState operator_common.PrepareFlagFn
+	flagIgnoredLeases operator_common.PrepareFlagFn
+	flagUsage operator_common.PrepareFlagFn
 	providerAddr string
 
 	available uint
@@ -111,7 +114,7 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 		return err
 	}
 
-	if err := op.server.prepareAll(); err != nil {
+	if err := op.server.PrepareAll(); err != nil {
 		cancel()
 		return err
 	}
@@ -137,7 +140,7 @@ loop:
 
 		case ev, ok := <-events:
 			if !ok {
-				exitError = errObservationStopped
+				exitError = operator_common.ErrObservationStopped
 				break loop
 			}
 			err = op.applyEvent(parentCtx, ev)
@@ -149,7 +152,7 @@ loop:
 
 			isUpdating = true
 		case <-pruneTicker.C:
-			op.leasesIgnored.prune()
+			op.leasesIgnored.Prune()
 			op.flagIgnoredLeases()
 			prepareData = true
 		case <-prepareTicker.C:
@@ -167,7 +170,7 @@ loop:
 		}
 
 		if prepareData {
-			if err := op.server.prepareAll(); err != nil {
+			if err := op.server.PrepareAll(); err != nil {
 				op.log.Error("preparing web data failed", "err", err)
 			}
 		}
@@ -214,14 +217,14 @@ func (op *ipOperator) recordEventError(ev ctypes.IPResourceEvent, failure error)
 		return
 	}
 
-	mark := errorIsKubernetesResourceNotFound(failure)
+	mark := kubeErrors.IsNotFound(failure)
 
 	if !mark {
 		return
 	}
 
 	op.log.Info("recording error for", "lease", ev.GetLeaseID().String(), "err", failure)
-	op.leasesIgnored.addError(ev.GetLeaseID(), failure, ev.GetSharingKey())
+	op.leasesIgnored.AddError(ev.GetLeaseID(), failure, ev.GetSharingKey())
 	op.flagIgnoredLeases()
 }
 
@@ -232,7 +235,7 @@ func (op *ipOperator) applyEvent(ctx context.Context, ev ctypes.IPResourceEvent)
 		// note that on delete the resource might be gone anyways because the namespace is deleted
 		return op.applyDeleteEvent(ctx, ev)
 	case ctypes.ProviderResourceAdd, ctypes.ProviderResourceUpdate:
-		if op.leasesIgnored.isFlagged(ev.GetLeaseID()) {
+		if op.leasesIgnored.IsFlagged(ev.GetLeaseID()) {
 			op.log.Info("ignoring event for", "lease", ev.GetLeaseID().String())
 			return nil
 		}
@@ -240,9 +243,8 @@ func (op *ipOperator) applyEvent(ctx context.Context, ev ctypes.IPResourceEvent)
 		op.recordEventError(ev, err)
 		return err
 	default:
-		return fmt.Errorf("%w: unknown event type %v", errObservationStopped, ev.GetEventType())
+		return fmt.Errorf("%w: unknown event type %v", operator_common.ErrObservationStopped, ev.GetEventType())
 	}
-
 }
 
 func (op *ipOperator) applyDeleteEvent(ctx context.Context, ev ctypes.IPResourceEvent) error {
@@ -347,10 +349,10 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 }
 
 func (op *ipOperator) webRouter() http.Handler {
-	return op.server.router
+	return op.server.GetRouter()
 }
 
-func (op *ipOperator) prepareUsage(pd *preparedResult) error {
+func (op *ipOperator) prepareUsage(pd operator_common.PreparedResult) error {
 	op.dataLock.Lock()
 	defer op.dataLock.Unlock()
 	value := ipoptypes.IPAddressUsage{
@@ -366,13 +368,11 @@ func (op *ipOperator) prepareUsage(pd *preparedResult) error {
 		return err
 	}
 
-	pd.set(buf.Bytes())
-
-
+	pd.Set(buf.Bytes())
 	return nil
 }
 
-func (op *ipOperator) prepareState(pd *preparedResult) error {
+func (op *ipOperator) prepareState(pd operator_common.PreparedResult) error {
 
 	results := make(map[string][]interface{})
 	for _, managedIpEntry := range op.state {
@@ -410,7 +410,7 @@ func (op *ipOperator) prepareState(pd *preparedResult) error {
 		return err
 	}
 
-	pd.set(buf.Bytes())
+	pd.Set(buf.Bytes())
 	return nil
 }
 
@@ -570,20 +570,20 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	return providerAddr, nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator) {
+func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator) {
 	retval := &ipOperator{
 		state:  make(map[string]managedIp),
 		client: client,
 		log:    logger,
-		server: newOperatorHttp(),
-		leasesIgnored: newIgnoreList(ilc),
+		server: operator_common.NewOperatorHttp(),
+		leasesIgnored: operator_common.NewIgnoreList(ilc),
 		mllbc: mllbc,
 		dataLock: &sync.Mutex{},
 		providerSda: providerSda,
 		barrier: &barrier{},
 	}
 
-	retval.server.router.Use(func (next http.Handler) http.Handler {
+	retval.server.GetRouter().Use(func (next http.Handler) http.Handler {
 		return http.HandlerFunc(func (rw http.ResponseWriter, req *http.Request){
 			if !retval.barrier.enter() {
 				retval.log.Error("barrier is locked, can't service request", "path", req.URL.Path)
@@ -595,17 +595,17 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc ignoreListConfi
 		})
 	})
 
-	retval.flagState = retval.server.addPreparedEndpoint("/state", retval.prepareState)
-	retval.flagIgnoredLeases = retval.server.addPreparedEndpoint("/ignored-leases", retval.leasesIgnored.prepare)
-	retval.flagUsage = retval.server.addPreparedEndpoint("/usage", retval.prepareUsage)
+	retval.flagState = retval.server.AddPreparedEndpoint("/state", retval.prepareState)
+	retval.flagIgnoredLeases = retval.server.AddPreparedEndpoint("/ignored-leases", retval.leasesIgnored.Prepare)
+	retval.flagUsage = retval.server.AddPreparedEndpoint("/usage", retval.prepareUsage)
 
-	retval.server.router.HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
+	retval.server.GetRouter().HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(rw, "OK")
 	})
 
 	// TODO - add auth based off TokenReview via k8s interface to below methods
-	retval.server.router.HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
+	retval.server.GetRouter().HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
 		handleIPLeaseStatusGet(retval, rw, req)
 	}).Methods(http.MethodGet)
 	return retval
@@ -686,9 +686,9 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 }
 
 func doIPOperator(cmd *cobra.Command) error {
-	ns := viper.GetString(FlagK8sManifestNS)
-	listenAddr := viper.GetString(FlagListenAddress)
-	logger := openLogger().With("operator","ip")
+	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
+	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
+	logger := operator_common.OpenLogger().With("operator","ip")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -707,7 +707,7 @@ func doIPOperator(cmd *cobra.Command) error {
 
 	logger.Info("clients","kube", client, "metallb", mllbc)
 
-	op := newIpOperator(logger, client, ignoreListConfigFromViper(), mllbc, providerSda)
+	op := newIpOperator(logger, client, operator_common.IgnoreListConfigFromViper(), mllbc, providerSda)
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
 
@@ -744,7 +744,8 @@ func IPOperatorCmd() *cobra.Command {
 			return doIPOperator(cmd)
 		},
 	}
-	addOperatorFlags(cmd,"0.0.0.0:8086")
+	operator_common.AddOperatorFlags(cmd, "0.0.0.0:8086")
+	operator_common.AddIgnoreListFlags(cmd)
 
 	return cmd
 }

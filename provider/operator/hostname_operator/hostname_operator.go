@@ -1,4 +1,4 @@
-package cmd
+package hostname_operator
 
 import (
 	"bytes"
@@ -12,52 +12,40 @@ import (
 	clusterClient "github.com/ovrclk/akash/provider/cluster/kube"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types"
 	"github.com/ovrclk/akash/provider/cluster/util"
+	provider_flags "github.com/ovrclk/akash/provider/cmd/flags"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
-	"io"
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	"net/http"
 	"strings"
 	"time"
 
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
+	"github.com/ovrclk/akash/provider/operator/operator_common"
 )
 
-const (
-	FlagListenAddress        = "listen"
-	FlagPruneInterval        = "prune-interval"
-	FlagIgnoreListEntryLimit = "ignore-list-entry-limit"
-	FlagWebRefreshInterval   = "web-refresh-interval"
-	FlagRetryDelay           = "retry-delay"
-	FlagIgnoreListAgeLimit   = "ignore-list-age-limit"
-	FlagEventFailureLimit    = "event=failure-limit"
-)
 
 var (
-	errObservationStopped       = errors.New("observation stopped")
-	errExpectedResourceNotFound = fmt.Errorf("%w: resource not found", errObservationStopped)
+	errExpectedResourceNotFound = fmt.Errorf("%w: resource not found", operator_common.ErrObservationStopped)
 )
-
-
 
 type hostnameOperator struct {
 	hostnames  map[string]managedHostname
-	//ignoreList map[mtypes.LeaseID]ignoreListEntry
 
-	leasesIgnored *ignoreList
+	leasesIgnored operator_common.IgnoreList
 
 	client cluster.Client
 
 	log log.Logger
 
 	cfg hostnameOperatorConfig
-	server *operatorHttp
+	server operator_common.OperatorHttp
 
-	flagHostnamesData prepareFlagFn
-	flagIgnoreListData prepareFlagFn
+	flagHostnamesData operator_common.PrepareFlagFn
+	flagIgnoreListData operator_common.PrepareFlagFn
 }
 
 func (op *hostnameOperator) run(parentCtx context.Context) error {
@@ -87,23 +75,8 @@ func (op *hostnameOperator) run(parentCtx context.Context) error {
 	}
 }
 
-func servePreparedResult(rw http.ResponseWriter, pd *preparedResult) {
-	rw.Header().Set("Cache-Control", "no-cache, max-age=0")
-	value := pd.get()
-	if len(value.data) == 0 {
-		rw.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	rw.Header().Set("Last-Modified", value.preparedAt.UTC().Format(http.TimeFormat))
-	rw.WriteHeader(http.StatusOK)
-	_, _ = rw.Write(value.data)
-}
-
-
-
 func (op *hostnameOperator) webRouter() http.Handler {
-	return op.server.router
+	return op.server.GetRouter()
 }
 
 func (op *hostnameOperator) monitorUntilError(parentCtx context.Context) error {
@@ -163,7 +136,7 @@ loop:
 
 		case ev, ok := <-events:
 			if !ok {
-				exitError = errObservationStopped
+				exitError = operator_common.ErrObservationStopped
 				break loop
 			}
 			err = op.applyEvent(ctx, ev)
@@ -175,7 +148,7 @@ loop:
 		case <-pruneTicker.C:
 			op.prune()
 		case <-prepareTicker.C:
-			if err := op.server.prepareAll(); err != nil {
+			if err := op.server.PrepareAll(); err != nil {
 				op.log.Error("preparing web data failed", "err", err)
 			}
 
@@ -187,12 +160,12 @@ loop:
 	return exitError
 }
 
-func (op *hostnameOperator) prepareIgnoreListData(pd *preparedResult) error {
+func (op *hostnameOperator) prepareIgnoreListData(pd operator_common.PreparedResult) error {
 	op.log.Debug("preparing ignore-list")
-	return op.leasesIgnored.prepare(pd)
+	return op.leasesIgnored.Prepare(pd)
 }
 
-func (op *hostnameOperator) prepareHostnamesData(pd *preparedResult) error {
+func (op *hostnameOperator) prepareHostnamesData(pd operator_common.PreparedResult) error {
 	op.log.Debug("preparing managed-hostnames")
 	buf := &bytes.Buffer{}
 	data := make(map[string]interface{})
@@ -220,12 +193,12 @@ func (op *hostnameOperator) prepareHostnamesData(pd *preparedResult) error {
 		return err
 	}
 
-	pd.set(buf.Bytes())
+	pd.Set(buf.Bytes())
 	return nil
 }
 
 func (op *hostnameOperator) prune() {
-	if op.leasesIgnored.prune() {
+	if op.leasesIgnored.Prune() {
 		op.flagIgnoreListData()
 	}
 }
@@ -266,12 +239,12 @@ func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, fa
 
 	op.log.Info("recording error for", "lease", ev.GetLeaseID().String(), "err", failure)
 
-	op.leasesIgnored.addError(ev.GetLeaseID(), failure, ev.GetHostname())
+	op.leasesIgnored.AddError(ev.GetLeaseID(), failure, ev.GetHostname())
 	op.flagIgnoreListData()
 }
 
 func (op *hostnameOperator) isEventIgnored(ev ctypes.HostnameResourceEvent) bool {
-	return op.leasesIgnored.isFlagged(ev.GetLeaseID())
+	return op.leasesIgnored.IsFlagged(ev.GetLeaseID())
 }
 
 func (op *hostnameOperator) applyEvent(ctx context.Context, ev ctypes.HostnameResourceEvent) error {
@@ -289,7 +262,7 @@ func (op *hostnameOperator) applyEvent(ctx context.Context, ev ctypes.HostnameRe
 		op.recordEventError(ev, err)
 		return err
 	default:
-		return fmt.Errorf("%w: unknown event type %v", errObservationStopped, ev.GetEventType())
+		return fmt.Errorf("%w: unknown event type %v", operator_common.ErrObservationStopped, ev.GetEventType())
 	}
 
 }
@@ -453,48 +426,35 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 	return err
 }
 
-func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc ignoreListConfig) (*hostnameOperator) {
+func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operator_common.IgnoreListConfig) (*hostnameOperator) {
 	op := &hostnameOperator{
 		hostnames:     make(map[string]managedHostname),
 		client:        client,
 		log:           logger,
 		cfg:           config,
-		server:        newOperatorHttp(),
-		leasesIgnored: newIgnoreList(ilc),
+		server:        operator_common.NewOperatorHttp(),
+		leasesIgnored: operator_common.NewIgnoreList(ilc),
 	}
 
-
-	op.flagIgnoreListData = op.server.addPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
-	op.flagHostnamesData = op.server.addPreparedEndpoint("/managed-hostnames",op.prepareHostnamesData)
-
-	op.server.router.HandleFunc("/health", func(rw http.ResponseWriter, req *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(rw, "OK")
-	})
+	op.flagIgnoreListData = op.server.AddPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
+	op.flagHostnamesData = op.server.AddPreparedEndpoint("/managed-hostnames",op.prepareHostnamesData)
 
 	return op
 }
 
-func ignoreListConfigFromViper() ignoreListConfig {
-	return ignoreListConfig{
-		failureLimit: viper.GetUint(FlagEventFailureLimit),
-		entryLimit:   viper.GetUint(FlagIgnoreListEntryLimit),
-		ageLimit:     viper.GetDuration(FlagIgnoreListAgeLimit),
-	}
-}
 
 func doHostnameOperator(cmd *cobra.Command) error {
-	ns := viper.GetString(FlagK8sManifestNS)
+	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 
-	listenAddr := viper.GetString(FlagListenAddress)
+	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
 	config := hostnameOperatorConfig{
-		listenAddress:        viper.GetString(FlagListenAddress),
-		pruneInterval:        viper.GetDuration(FlagPruneInterval),
-		webRefreshInterval:   viper.GetDuration(FlagWebRefreshInterval),
-		retryDelay:           viper.GetDuration(FlagRetryDelay),
+		listenAddress:        viper.GetString(provider_flags.FlagListenAddress),
+		pruneInterval:        viper.GetDuration(provider_flags.FlagPruneInterval),
+		webRefreshInterval:   viper.GetDuration(provider_flags.FlagWebRefreshInterval),
+		retryDelay:           viper.GetDuration(provider_flags.FlagRetryDelay),
 	}
 
-	logger := openLogger().With("op","hostname")
+	logger := operator_common.OpenLogger().With("op","hostname")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -503,7 +463,7 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op := newHostnameOperator(logger, client, config, ignoreListConfigFromViper())
+	op := newHostnameOperator(logger, client, config, operator_common.IgnoreListConfigFromViper())
 
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
@@ -532,48 +492,6 @@ func doHostnameOperator(cmd *cobra.Command) error {
 	return nil
 }
 
-func addOperatorFlags(cmd *cobra.Command, defaultListenAddress string) {
-	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
-	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().String(FlagListenAddress, defaultListenAddress, "listen address for web server")
-	if err := viper.BindPFlag(FlagListenAddress, cmd.Flags().Lookup(FlagListenAddress)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().Duration(FlagPruneInterval, 10*time.Minute, "data pruning interval")
-	if err := viper.BindPFlag(FlagPruneInterval, cmd.Flags().Lookup(FlagPruneInterval)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().Uint(FlagIgnoreListEntryLimit, 131072, "ignore list size limit")
-	if err := viper.BindPFlag(FlagIgnoreListEntryLimit, cmd.Flags().Lookup(FlagIgnoreListEntryLimit)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().Duration(FlagIgnoreListAgeLimit, time.Hour*726, "ignore list entry age limit")
-	if err := viper.BindPFlag(FlagIgnoreListAgeLimit, cmd.Flags().Lookup(FlagIgnoreListAgeLimit)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().Duration(FlagWebRefreshInterval, 5*time.Second, "web data refresh interval")
-	if err := viper.BindPFlag(FlagWebRefreshInterval, cmd.Flags().Lookup(FlagWebRefreshInterval)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().Duration(FlagRetryDelay, 3*time.Second, "retry delay")
-	if err := viper.BindPFlag(FlagRetryDelay, cmd.Flags().Lookup(FlagRetryDelay)); err != nil {
-		panic(err)
-	}
-
-	cmd.Flags().Uint(FlagEventFailureLimit, 3, "event failure limit before it is ignored")
-	if err := viper.BindPFlag(FlagEventFailureLimit, cmd.Flags().Lookup(FlagEventFailureLimit)); err != nil {
-		panic(err)
-	}
-}
-
 func HostnameOperatorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "hostname-operator",
@@ -583,7 +501,8 @@ func HostnameOperatorCmd() *cobra.Command {
 			return doHostnameOperator(cmd)
 		},
 	}
-	addOperatorFlags(cmd, "0.0.0.0:8085")
+	operator_common.AddOperatorFlags(cmd,"0.0.0.0:8085")
+	operator_common.AddIgnoreListFlags(cmd)
 
 	return cmd
 }

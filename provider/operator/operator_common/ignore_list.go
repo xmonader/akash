@@ -1,60 +1,23 @@
-package cmd
+package operator_common
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
-	ctypes "github.com/ovrclk/akash/provider/cluster/types"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
-	"sync/atomic"
 	"time"
+	"encoding/json"
+	"fmt"
 )
 
-type managedHostname struct {
-	lastEvent    ctypes.HostnameResourceEvent
-	presentLease mtypes.LeaseID
-
-	presentServiceName  string
-	presentExternalPort uint32
-	lastChangeAt        time.Time
+type IgnoreList interface {
+	Prepare(pd PreparedResult) error
+	//Size() int
+	//Each(f func(k mtypes.LeaseID, failure error, failedAt time.Time, count uint, extra ...string) error ) error
+	AddError(id mtypes.LeaseID, err error, extra ...string)
+	IsFlagged(id mtypes.LeaseID) bool
+	Prune() bool
 }
 
-type preparedResultData struct {
-	preparedAt time.Time
-	data       []byte
-}
-
-type preparedResult struct {
-	needsPrepare bool
-	data         atomic.Value
-}
-
-func newPreparedResult() *preparedResult {
-	result := &preparedResult{
-		needsPrepare: true,
-	}
-	result.set([]byte{})
-	return result
-}
-
-func (pr *preparedResult) flag() {
-	pr.needsPrepare = true
-}
-
-func (pr *preparedResult) set(data []byte) {
-	pr.needsPrepare = false
-	pr.data.Store(preparedResultData{
-		preparedAt: time.Now(),
-		data:       data,
-	})
-}
-
-func (pr *preparedResult) get() preparedResultData {
-	return (pr.data.Load()).(preparedResultData)
-}
-
-// TODO - move me to common file
 type ignoreListEntry struct {
 	failureCount uint
 	failedAt     time.Time
@@ -63,25 +26,19 @@ type ignoreListEntry struct {
 	extra    map[string]struct{}
 }
 
-type ignoreListConfig struct {
-	failureLimit uint
-	entryLimit uint
-	ageLimit time.Duration
-}
-
 type ignoreList struct {
 	entries map[mtypes.LeaseID]ignoreListEntry
-	cfg ignoreListConfig
+	cfg IgnoreListConfig
 }
 
-func newIgnoreList(config ignoreListConfig) *ignoreList{
+func NewIgnoreList(config IgnoreListConfig) IgnoreList{
 	return &ignoreList{
 		entries: make(map[mtypes.LeaseID]ignoreListEntry),
 		cfg:     config,
 	}
 }
 
-func (il *ignoreList) prepare(pd *preparedResult) error {
+func (il *ignoreList) Prepare(pd  PreparedResult) error {
 	data := make(map[string]interface{})
 
 	err := il.each(func(leaseID mtypes.LeaseID, lastError error, failedAt time.Time, count uint, extra ...string) error {
@@ -118,7 +75,7 @@ func (il *ignoreList) prepare(pd *preparedResult) error {
 		return err
 	}
 
-	pd.set(buf.Bytes())
+	pd.Set(buf.Bytes())
 	return nil
 
 }
@@ -141,7 +98,7 @@ func (il *ignoreList) each(f func(k mtypes.LeaseID, failure error, failedAt time
 	return nil
 }
 
-func (il *ignoreList) addError(k mtypes.LeaseID, failure error, extra ...string) {
+func (il *ignoreList) AddError(k mtypes.LeaseID, failure error, extra ...string) {
 	// Increment the error counter
 	entry := il.entries[k]
 	entry.failureCount++
@@ -163,32 +120,32 @@ func (il *ignoreList) getFailureCount(k mtypes.LeaseID) uint {
 	return il.entries[k].failureCount
 }
 
-func (il *ignoreList) isFlagged(k mtypes.LeaseID) bool {
+func (il *ignoreList) IsFlagged(k mtypes.LeaseID) bool {
 	entry, ok := il.entries[k]
 	if !ok {
 		return false
 	}
 
-	return entry.failureCount >= il.cfg.entryLimit
+	return entry.failureCount >= il.cfg.EntryLimit
 }
 
-func (il *ignoreList) prune() bool {
+func (il *ignoreList) Prune() bool {
 	deleted := false
 	// do not let the ignore list grow unbounded, it would eventually
 	// consume 100% of available memory otherwise
-	if len(il.entries) > int(il.cfg.entryLimit) {
+	if len(il.entries) > int(il.cfg.EntryLimit) {
 		var toDelete []mtypes.LeaseID
 
 		for leaseID, entry := range il.entries {
-			if time.Since(entry.failedAt) > il.cfg.ageLimit {
+			if time.Since(entry.failedAt) > il.cfg.AgeLimit {
 				toDelete = append(toDelete, leaseID)
 			}
 		}
 
 		// if enough entries have not been selected for deletion
 		// then just remove half of the entries
-		if len(il.entries)-len(toDelete) > int(il.cfg.entryLimit) {
-	//		op.log.Info("removing half of ignore list entries")
+		if len(il.entries)-len(toDelete) > int(il.cfg.EntryLimit) {
+			//		op.log.Info("removing half of ignore list entries")
 			i := 0
 			for leaseID := range il.entries {
 				if (i % 2) == 0 {
@@ -208,13 +165,3 @@ func (il *ignoreList) prune() bool {
 	return deleted
 }
 
-
-type hostnameOperatorConfig struct {
-	listenAddress        string
-	pruneInterval        time.Duration
-	ignoreListEntryLimit uint
-	ignoreListAgeLimit   time.Duration
-	webRefreshInterval   time.Duration
-	retryDelay           time.Duration
-	eventFailureLimit    uint
-}

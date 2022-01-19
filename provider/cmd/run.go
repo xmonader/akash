@@ -52,13 +52,15 @@ import (
 	"github.com/ovrclk/akash/pubsub"
 	cmodule "github.com/ovrclk/akash/x/cert"
 	ptypes "github.com/ovrclk/akash/x/provider/types/v1beta2"
+
+	provider_flags "github.com/ovrclk/akash/provider/cmd/flags"
 )
 
 const (
 	// FlagClusterK8s informs the provider to scan and utilize localized kubernetes client configuration
 	FlagClusterK8s = "cluster-k8s"
-	// FlagK8sManifestNS
-	FlagK8sManifestNS = "k8s-manifest-ns"
+
+
 	// FlagGatewayListenAddress determines listening address for Manifests
 	FlagGatewayListenAddress             = "gateway-listen-address"
 	FlagBidPricingStrategy               = "bid-price-strategy"
@@ -129,8 +131,8 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
-	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
-	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
+	cmd.Flags().String(provider_flags.FlagK8sManifestNS, "lease", "Cluster manifest namespace")
+	if err := viper.BindPFlag(provider_flags.FlagK8sManifestNS, cmd.Flags().Lookup(provider_flags.FlagK8sManifestNS)); err != nil {
 		return nil
 	}
 
@@ -689,9 +691,9 @@ func createClusterClient(log log.Logger, _ *cobra.Command, configPath string) (c
 		// Condition that there is no Kubernetes API to work with.
 		return cluster.NullClient(), nil
 	}
-	ns := viper.GetString(FlagK8sManifestNS)
+	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 	if ns == "" {
-		return nil, fmt.Errorf("%w: --%s required", errInvalidConfig, FlagK8sManifestNS)
+		return nil, fmt.Errorf("%w: --%s required", errInvalidConfig, provider_flags.FlagK8sManifestNS)
 	}
 	return kube.NewPreparedClient(log, ns, configPath)
 }
