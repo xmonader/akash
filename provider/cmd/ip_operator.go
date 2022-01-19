@@ -128,8 +128,6 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	updateCountsTicker := time.NewTicker(updateCountDelay)
 	defer updateCountsTicker.Stop()
 
-
-
 	op.log.Info("barrier can now be passed")
 	op.barrier.enable()
 loop:
@@ -168,7 +166,6 @@ loop:
 
 		case <-updateCountsTicker.C:
 			updateCountsTicker.Stop()
-			// TODO - is this a blocking call that could be an issue?
 			err = op.updateCounts(parentCtx)
 			if err != nil {
 				exitError = err
@@ -192,7 +189,11 @@ loop:
 
 	err = op.barrier.waitUntilClear(ctxWithTimeout)
 	if err != nil {
-		op.log.Error("failed waiting on barrier to clear", "err", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			op.log.Error("did not clear barrier in given time")
+		} else {
+			op.log.Error("failed waiting on barrier to clear", "err", err)
+		}
 	}
 
 	op.log.Info("ip operator done")

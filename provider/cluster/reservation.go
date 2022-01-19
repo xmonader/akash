@@ -11,7 +11,6 @@ func newReservation(order mtypes.OrderID, resources atypes.ResourceGroup) *reser
 	return &reservation{
 		order: order,
 		resources: resources,
-		// TODO - this winds up being zero when the provider boots up with existing deployments
 		endpointQuantity: util.GetEndpointQuantity(resources, atypes.Endpoint_LEASED_IP)}
 }
 

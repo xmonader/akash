@@ -612,7 +612,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	hostnameOperatorClient := operator_clients.NewHostnameOperatorClient(log)
 	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), log, hostnameOperatorClient, ipOperatorClient)
 
-	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, operatorWaiter, config)
+	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, ipOperatorClient, operatorWaiter, config)
 	if err != nil {
 		return err
 	}

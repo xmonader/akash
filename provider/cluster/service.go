@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 
 	"github.com/boz/go-lifecycle"
@@ -60,7 +61,7 @@ type Service interface {
 }
 
 // NewService returns new Service instance
-func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, client Client, waiter waiter.OperatorWaiter, cfg Config) (Service, error) {
+func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, client Client, ipOperatorClient operator_clients.IPOperatorClient, waiter waiter.OperatorWaiter, cfg Config) (Service, error) {
 	log := session.Log().With("module", "provider-cluster", "cmp", "service")
 
 	lc := lifecycle.New()
@@ -76,7 +77,8 @@ func NewService(ctx context.Context, session session.Session, bus pubsub.Bus, cl
 		return nil, err
 	}
 
-	inventory, err := newInventoryService(cfg, log, lc.ShuttingDown(), sub, client, waiter, deployments)
+
+	inventory, err := newInventoryService(cfg, log, lc.ShuttingDown(), sub, client, ipOperatorClient, waiter, deployments)
 	if err != nil {
 		sub.Close()
 		return nil, err

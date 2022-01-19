@@ -48,7 +48,6 @@ func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
 
-
 func (_ ipOperatorNullClient) Stop(){}
 
 func (_ ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {

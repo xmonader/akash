@@ -5,6 +5,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankTypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	clustertypes "github.com/ovrclk/akash/provider/cluster/types"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 
@@ -60,6 +61,7 @@ func NewService(ctx context.Context,
 	session session.Session,
 	bus pubsub.Bus,
 	cclient cluster.Client,
+	ipOperatorClient operator_clients.IPOperatorClient,
 	waiter waiter.OperatorWaiter,
 	cfg Config) (Service, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -78,7 +80,7 @@ func NewService(ctx context.Context,
 	clusterConfig.DeploymentIngressDomain = cfg.DeploymentIngressDomain
 	clusterConfig.ClusterSettings = cfg.ClusterSettings
 
-	cluster, err := cluster.NewService(ctx, session, bus, cclient, waiter, clusterConfig)
+	cluster, err := cluster.NewService(ctx, session, bus, cclient, ipOperatorClient, waiter, clusterConfig)
 	if err != nil {
 		cancel()
 		return nil, err

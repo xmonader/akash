@@ -454,7 +454,7 @@ func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 		err = dm.client.DeclareIP(ctx, dm.lease, serviceExpose.name, uint32(port), uint32(externalPort), serviceExpose.expose.Proto, sharingKey)
 
 		if err != nil {
-			// TODO - on error undeclare IPs -- ?? actually needed or not
+			// TODO - on error undeclare IPs -- ?? actually needed or not ?? - do we have a label based delete that takes care of this?
 			return withheldHostnames, err
 		}
 		dm.currentIPs[serviceExpose.idIP()] = serviceExpose

@@ -88,17 +88,12 @@ func newInventoryService(
 	donech <-chan struct{},
 	sub pubsub.Subscriber,
 	client Client,
+	ipOperatorClient operator_clients.IPOperatorClient,
 	waiter waiter.OperatorWaiter,
 	deployments []ctypes.Deployment,
 ) (*inventoryService, error) {
 
-	// TODO - pass this in, don't create our own here
-	ipOperatorClient, err := operator_clients.NewIPOperatorClient(log)
-	if err != nil {
-		return nil, err
-	}
-
-	sub, err = sub.Clone()
+	sub, err := sub.Clone()
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +119,6 @@ func newInventoryService(
 		reservations = append(reservations, newReservation(d.LeaseID().OrderID(), d.ManifestGroup()))
 	}
 
-	// TODO - tie to lifecycle
 	ctx, _ := TieContextToChannel(context.Background(), donech)
 
 	go is.lc.WatchChannel(donech)
@@ -357,7 +351,7 @@ type inventoryServiceState struct {
 func countPendingIPs(state *inventoryServiceState) uint {
 	pending := uint(0)
 	for _, entry := range state.reservations {
-		if !entry.allocated || !entry.ipsConfirmed {
+		if !entry.ipsConfirmed {
 			pending += entry.endpointQuantity
 		}
 	}
@@ -378,7 +372,14 @@ func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequ
 		numIPUnused -= countPendingIPs(state)
 		if reservation.endpointQuantity > numIPUnused {
 			is.log.Info("insufficient number of IP addresses available", "order", req.order)
+			req.ch <- inventoryResponse{err: fmt.Errorf("unable to reserve %d leased IPs", reservation.endpointQuantity)}
+			return
 		}
+
+		remainingAvailable := numIPUnused - reservation.endpointQuantity
+		is.log.Info("reservation used leased IPs", "used", reservation.endpointQuantity, "remaining", remainingAvailable)
+	} else {
+		reservation.ipsConfirmed = true // No IPs, just mark it as confirmed implicitly
 	}
 
 	err := state.inventory.Adjust(reservation)
@@ -631,19 +632,16 @@ func (is *inventoryService) runCheck(ctx context.Context, state *inventoryServic
 
 	confirm := make([]confirmationItem, 0)
 
-	for i, entry := range state.reservations {
+	for _, entry := range state.reservations {
 		// Skip anything already confirmed or not allocated
 		if entry.ipsConfirmed || !entry.allocated {
 			continue
 		}
-		if entry.endpointQuantity == 0 {
-			state.reservations[i].ipsConfirmed = true // No IPs, just mark it as confirmed implicitly
-		} else {
-			confirm = append(confirm, confirmationItem{
-				orderID: entry.OrderID(),
-				expectedQuantity: entry.endpointQuantity,
-			})
-		}
+
+		confirm = append(confirm, confirmationItem{
+			orderID: entry.OrderID(),
+			expectedQuantity: entry.endpointQuantity,
+		})
 	}
 
 	state = nil // Don't access state past here, it isn't safe
