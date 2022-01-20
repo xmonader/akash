@@ -226,6 +226,8 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 		Resources: res,
 		Count:     ms.Count,
 		Expose:    make([]manifest.ServiceExpose, 0, len(ms.Expose)),
+		Params:    nil, // TODO - store in CRD
+		Command:   nil, // TODO - store in CRD
 	}
 
 	for _, expose := range ms.Expose {
@@ -234,6 +236,13 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 			return manifest.Service{}, err
 		}
 		ams.Expose = append(ams.Expose, value)
+
+		if len(value.IP) != 0 {
+			res.Endpoints = append(res.Endpoints, types.Endpoint{
+				Kind: types.Endpoint_LEASED_IP,
+				SequenceNumber: value.EndpointSequenceNumber,
+			})
+		}
 	}
 
 	if ms.Params != nil {
@@ -300,6 +309,8 @@ type ManifestServiceExpose struct {
 	// accepted hostnames
 	Hosts       []string                         `json:"hosts,omitempty"`
 	HTTPOptions ManifestServiceExposeHTTPOptions `json:"http_options,omitempty"`
+	IP string `json:"ip,omitempty"`
+	EndpointSequenceNumber uint32 `json:"endpoint_sequence_number"`
 }
 
 type ManifestServiceExposeHTTPOptions struct {
@@ -324,6 +335,16 @@ func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 		Service:      mse.Service,
 		Global:       mse.Global,
 		Hosts:        mse.Hosts,
+		EndpointSequenceNumber: mse.EndpointSequenceNumber,
+		IP:           mse.IP,
+		HTTPOptions:  manifest.ServiceExposeHTTPOptions{
+			MaxBodySize: mse.HTTPOptions.MaxBodySize,
+			ReadTimeout: mse.HTTPOptions.ReadTimeout,
+			SendTimeout: mse.HTTPOptions.SendTimeout,
+			NextTries:   mse.HTTPOptions.NextTries,
+			NextTimeout: mse.HTTPOptions.NextTimeout,
+			NextCases:   mse.HTTPOptions.NextCases,
+		},
 	}, nil
 }
 
@@ -335,6 +356,8 @@ func manifestServiceExposeFromAkash(amse manifest.ServiceExpose) ManifestService
 		Service:      amse.Service,
 		Global:       amse.Global,
 		Hosts:        amse.Hosts,
+		IP: amse.IP,
+		EndpointSequenceNumber: amse.EndpointSequenceNumber,
 		HTTPOptions: ManifestServiceExposeHTTPOptions{
 			MaxBodySize: amse.HTTPOptions.MaxBodySize,
 			ReadTimeout: amse.HTTPOptions.ReadTimeout,

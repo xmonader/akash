@@ -22,7 +22,6 @@ import (
 	"fmt"
 
 	v1 "github.com/ovrclk/akash/pkg/apis/akash.network/v1"
-	v2beta1 "github.com/ovrclk/akash/pkg/apis/akash.network/v2beta1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -60,16 +59,6 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Akash().V1().ProviderHosts().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("providerleasedips"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Akash().V1().ProviderLeasedIPs().Informer()}, nil
-
-		// Group=akash.network, Version=v2beta1
-	case v2beta1.SchemeGroupVersion.WithResource("inventories"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Akash().V2beta1().Inventories().Informer()}, nil
-	case v2beta1.SchemeGroupVersion.WithResource("inventoryrequests"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Akash().V2beta1().InventoryRequests().Informer()}, nil
-	case v2beta1.SchemeGroupVersion.WithResource("manifests"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Akash().V2beta1().Manifests().Informer()}, nil
-	case v2beta1.SchemeGroupVersion.WithResource("providerhosts"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Akash().V2beta1().ProviderHosts().Informer()}, nil
 
 	}
 

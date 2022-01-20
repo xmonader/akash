@@ -1,7 +1,7 @@
 package v1beta2
 
 import (
-	"github.com/ovrclk/akash/manifest"
+	manifest "github.com/ovrclk/akash/manifest/v2beta1"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 )
 

@@ -9,8 +9,8 @@ require (
 	github.com/cosmos/cosmos-sdk v0.44.5
 	github.com/cosmos/ibc-go/v2 v2.0.2
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/ericlagergren/decimal v0.0.0-20211103172832-aca2edc11f73
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f
+	github.com/ericlagergren/decimal v0.0.0-20211103172832-aca2edc11f73
 	github.com/gin-gonic/gin v1.7.0 // indirect
 	github.com/go-kit/kit v0.10.0
 	github.com/gogo/protobuf v1.3.3
