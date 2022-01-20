@@ -595,19 +595,21 @@ loop:
 				}
 			}
 
-			// Save IP address data
-			state.ipAddrUsage = resultArray[1].(ipoptypes.IPAddressUsage)
+			if is.ipOperator != nil {
+				// Save IP address data
+				state.ipAddrUsage = resultArray[1].(ipoptypes.IPAddressUsage)
 
-			// Process confirmed IP addresses usage
-			confirmed := resultArray[2].([]mtypes.OrderID)
+				// Process confirmed IP addresses usage
+				confirmed := resultArray[2].([]mtypes.OrderID)
 
-			for _, confirmedOrderID := range confirmed {
+				for _, confirmedOrderID := range confirmed {
 
-				for i, entry := range state.reservations {
-					if entry.order.Equals(confirmedOrderID) {
-						state.reservations[i].ipsConfirmed = true
-						is.log.Info("confirmed IP allocation", "orderID", confirmedOrderID)
-						break
+					for i, entry := range state.reservations {
+						if entry.order.Equals(confirmedOrderID) {
+							state.reservations[i].ipsConfirmed = true
+							is.log.Info("confirmed IP allocation", "orderID", confirmedOrderID)
+							break
+						}
 					}
 				}
 			}
@@ -636,18 +638,20 @@ func (is *inventoryService) runCheck(ctx context.Context, state *inventoryServic
 	// that it has actually created the associated resources, we need to consider the total number of end
 	// points as pending
 
-	confirm := make([]confirmationItem, 0)
+	var confirm []confirmationItem
 
-	for _, entry := range state.reservations {
-		// Skip anything already confirmed or not allocated
-		if entry.ipsConfirmed || !entry.allocated {
-			continue
+	if is.ipOperator != nil {
+		for _, entry := range state.reservations {
+			// Skip anything already confirmed or not allocated
+			if entry.ipsConfirmed || !entry.allocated {
+				continue
+			}
+
+			confirm = append(confirm, confirmationItem{
+				orderID:          entry.OrderID(),
+				expectedQuantity: entry.endpointQuantity,
+			})
 		}
-
-		confirm = append(confirm, confirmationItem{
-			orderID: entry.OrderID(),
-			expectedQuantity: entry.endpointQuantity,
-		})
 	}
 
 	state = nil // Don't access state past here, it isn't safe
@@ -659,10 +663,12 @@ func (is *inventoryService) runCheck(ctx context.Context, state *inventoryServic
 			return runner.NewResult(nil, err)
 		}
 
-		ipResult, err := is.ipOperator.GetIPAddressUsage(ctx)
-
-		if err != nil {
-			return runner.NewResult(nil, err)
+		var ipResult ipoptypes.IPAddressUsage
+		if is.ipOperator != nil {
+			ipResult, err = is.ipOperator.GetIPAddressUsage(ctx)
+			if err != nil {
+				return runner.NewResult(nil, err)
+			}
 		}
 
 		var confirmed []mtypes.OrderID

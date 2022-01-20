@@ -624,7 +624,15 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	}
 
 	hostnameOperatorClient := operator_clients.NewHostnameOperatorClient(log)
-	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), log, hostnameOperatorClient, ipOperatorClient)
+
+	waitClients := make([]waiter.Waitable, 0)
+	waitClients = append(waitClients, hostnameOperatorClient)
+
+	if ipOperatorClient != nil {
+		waitClients = append(waitClients, ipOperatorClient)
+	}
+
+	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), log, waitClients...)
 
 	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, ipOperatorClient, operatorWaiter, config)
 	if err != nil {
