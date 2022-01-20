@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 
@@ -44,7 +45,7 @@ type ManifestSpec struct {
 
 // Deployment returns the cluster.Deployment that the saved manifest represents.
 func (m Manifest) Deployment() (ctypes.Deployment, error) {
-	lid, err := m.Spec.LeaseID.ToAkash()
+	lid, err := m.Spec.LeaseID.toAkash()
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +54,6 @@ func (m Manifest) Deployment() (ctypes.Deployment, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return deployment{lid: lid, group: group}, nil
 }
 
@@ -88,7 +88,7 @@ func NewManifest(ns string, lid mtypes.LeaseID, mgroup *manifest.Group) (*Manife
 		},
 		Spec: ManifestSpec{
 			Group:   group,
-			LeaseID: LeaseIDFromAkash(lid),
+			LeaseID: leaseIDFromAkash(lid),
 		},
 	}, nil
 }
@@ -103,7 +103,7 @@ type LeaseID struct {
 }
 
 // ToAkash returns LeaseID from LeaseID details
-func (id LeaseID) ToAkash() (mtypes.LeaseID, error) {
+func (id LeaseID) toAkash() (mtypes.LeaseID, error) {
 	owner, err := sdk.AccAddressFromBech32(id.Owner)
 	if err != nil {
 		return mtypes.LeaseID{}, err
@@ -129,7 +129,7 @@ func (id LeaseID) ToAkash() (mtypes.LeaseID, error) {
 }
 
 // LeaseIDFromAkash returns LeaseID instance from akash
-func LeaseIDFromAkash(id mtypes.LeaseID) LeaseID {
+func leaseIDFromAkash(id mtypes.LeaseID) LeaseID {
 	return LeaseID{
 		Owner:    id.Owner,
 		DSeq:     strconv.FormatUint(id.DSeq, 10),
@@ -161,6 +161,7 @@ func (m ManifestGroup) toAkash() (manifest.Group, error) {
 		}
 		am.Services = append(am.Services, asvc)
 	}
+
 	return am, nil
 }
 
@@ -170,8 +171,6 @@ func manifestGroupFromAkash(m *manifest.Group) (ManifestGroup, error) {
 		Name:     m.Name,
 		Services: make([]ManifestService, 0, len(m.Services)),
 	}
-
-
 
 	for _, svc := range m.Services {
 		service, err := manifestServiceFromAkash(svc)
@@ -246,9 +245,7 @@ func manifestServiceFromAkash(ams manifest.Service) (ManifestService, error) {
 	}
 
 	for _, expose := range ams.Expose {
-		newExpose := manifestServiceExposeFromAkash(expose)
-
-		ms.Expose = append(ms.Expose, newExpose)
+		ms.Expose = append(ms.Expose, manifestServiceExposeFromAkash(expose))
 	}
 
 	return ms, nil
@@ -264,8 +261,6 @@ type ManifestServiceExpose struct {
 	// accepted hostnames
 	Hosts       []string                         `json:"hosts,omitempty"`
 	HTTPOptions ManifestServiceExposeHTTPOptions `json:"http_options,omitempty"`
-	IP string `json:"ip,omitempty"`
-	EndpointSequenceNumber uint32 `json:"endpoint_sequence_number"`
 }
 
 type ManifestServiceExposeHTTPOptions struct {
@@ -280,6 +275,7 @@ type ManifestServiceExposeHTTPOptions struct {
 func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 	proto, err := manifest.ParseServiceProtocol(mse.Proto)
 	if err != nil {
+		fmt.Printf("foobar: %q\n", mse.Proto)
 		return manifest.ServiceExpose{}, err
 	}
 	return manifest.ServiceExpose{
@@ -289,14 +285,6 @@ func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 		Service:      mse.Service,
 		Global:       mse.Global,
 		Hosts:        mse.Hosts,
-		HTTPOptions:  manifest.ServiceExposeHTTPOptions{
-			MaxBodySize: mse.HTTPOptions.MaxBodySize,
-			ReadTimeout: mse.HTTPOptions.ReadTimeout,
-			SendTimeout: mse.HTTPOptions.SendTimeout,
-			NextTries:   mse.HTTPOptions.NextTries,
-			NextTimeout: mse.HTTPOptions.NextTimeout,
-			NextCases:   mse.HTTPOptions.NextCases,
-		},
 	}, nil
 }
 
@@ -346,7 +334,6 @@ func (ru ResourceUnits) toAkash() (types.ResourceUnits, error) {
 		Storage: &types.Storage{
 			Quantity: types.NewResourceValue(storage),
 		},
-		Endpoints: nil, // TODO - reconstruct this value here
 	}, nil
 }
 
@@ -411,36 +398,4 @@ type ProviderHostList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
 	Items           []ProviderHost `json:"items"`
-}
-
-// +genclient
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-
-type ProviderLeasedIP struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata"`
-
-	Spec   ProviderLeasedIPSpec   `json:"spec,omitempty"`
-	Status ProviderLeasedIPStatus `json:"status,omitempty"`
-}
-
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type ProviderLeasedIPList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
-	Items           []ProviderLeasedIP `json:"items"`
-}
-
-type ProviderLeasedIPStatus struct {
-	State   string `json:"state,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-type ProviderLeasedIPSpec struct {
-	LeaseID LeaseID       `json:"lease_id"`
-	ServiceName  string `json:"service_name"`
-	Port uint32 `json:"port"`
-	ExternalPort uint32 `json:"external_port"`
-	SharingKey   string `json:"sharing_key"`
-	Protocol string `json:"protocol"`
 }

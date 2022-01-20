@@ -28,7 +28,6 @@ type AkashV1Interface interface {
 	RESTClient() rest.Interface
 	ManifestsGetter
 	ProviderHostsGetter
-	ProviderLeasedIPsGetter
 }
 
 // AkashV1Client is used to interact with features provided by the akash.network group.
@@ -42,10 +41,6 @@ func (c *AkashV1Client) Manifests(namespace string) ManifestInterface {
 
 func (c *AkashV1Client) ProviderHosts(namespace string) ProviderHostInterface {
 	return newProviderHosts(c, namespace)
-}
-
-func (c *AkashV1Client) ProviderLeasedIPs(namespace string) ProviderLeasedIPInterface {
-	return newProviderLeasedIPs(c, namespace)
 }
 
 // NewForConfig creates a new AkashV1Client for the given config.

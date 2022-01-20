@@ -93,16 +93,13 @@ type Client interface {
 
 	PurgeDeclaredHostname(ctx context.Context, lID mtypes.LeaseID, hostname string) error
 
-<<<<<<< HEAD
 	// KubeVersion returns the version information of kubernetes running in the cluster
 	KubeVersion() (*version.Info, error)
-=======
+
 	DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, port uint32, externalPort uint32, proto manifest.ServiceProtocol, sharingKey string) error
 	PurgeDeclaredIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, externalPort uint32, proto manifest.ServiceProtocol) error
     PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error
 
-
->>>>>>> df999c9e... feat(provider): add IP address marketplace based off metal LB
 }
 
 func ErrorIsOkToSendToClient(err error) bool {
@@ -612,9 +609,4 @@ func (c *nullClient) PurgeIPPassthrough(ctx context.Context, lID mtypes.LeaseID,
 
 func (c *nullClient) PurgeDeclaredIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, externalPort uint32, proto manifest.ServiceProtocol) error {
 	return errNotImplemented
-}
-
-func (c *nullClient) GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough, error) {
-	return nil, errNotImplemented
->>>>>>> df999c9e... feat(provider): add IP address marketplace based off metal LB
 }
