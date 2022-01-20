@@ -7,6 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/operator/waiter"
 	"io"
 	"net/http"
 	"os"
@@ -50,13 +52,15 @@ import (
 	"github.com/ovrclk/akash/pubsub"
 	cmodule "github.com/ovrclk/akash/x/cert"
 	ptypes "github.com/ovrclk/akash/x/provider/types/v1beta2"
+
+	provider_flags "github.com/ovrclk/akash/provider/cmd/flags"
 )
 
 const (
 	// FlagClusterK8s informs the provider to scan and utilize localized kubernetes client configuration
 	FlagClusterK8s = "cluster-k8s"
-	// FlagK8sManifestNS
-	FlagK8sManifestNS = "k8s-manifest-ns"
+
+
 	// FlagGatewayListenAddress determines listening address for Manifests
 	FlagGatewayListenAddress             = "gateway-listen-address"
 	FlagBidPricingStrategy               = "bid-price-strategy"
@@ -94,6 +98,8 @@ const (
 	FlagProviderConfig                   = "provider-config"
 	FlagCachedResultMaxAge               = "cached-result-max-age"
 	FlagRPCQueryTimeout                  = "rpc-query-timeout"
+	FlagBidPriceIpScale = "bid-price-ip-scale"
+	FlagEnableIPOperator = "ip-operator"
 )
 
 var (
@@ -127,8 +133,8 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
-	cmd.Flags().String(FlagK8sManifestNS, "lease", "Cluster manifest namespace")
-	if err := viper.BindPFlag(FlagK8sManifestNS, cmd.Flags().Lookup(FlagK8sManifestNS)); err != nil {
+	cmd.Flags().String(provider_flags.FlagK8sManifestNS, "lease", "Cluster manifest namespace")
+	if err := viper.BindPFlag(provider_flags.FlagK8sManifestNS, cmd.Flags().Lookup(provider_flags.FlagK8sManifestNS)); err != nil {
 		return nil
 	}
 
@@ -159,6 +165,11 @@ func RunCmd() *cobra.Command {
 
 	cmd.Flags().String(FlagBidPriceEndpointScale, "0", "endpoint pricing scale in uakt")
 	if err := viper.BindPFlag(FlagBidPriceEndpointScale, cmd.Flags().Lookup(FlagBidPriceEndpointScale)); err != nil {
+		return nil
+	}
+
+	cmd.Flags().String(FlagBidPriceIpScale, "0", "leased ip pricing scale in uakt")
+	if err := viper.BindPFlag(FlagBidPriceIpScale, cmd.Flags().Lookup(FlagBidPriceIpScale)); err != nil {
 		return nil
 	}
 
@@ -309,6 +320,12 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
+	cmd.Flags().Bool(FlagEnableIPOperator, false, "")
+	if err := viper.BindPFlag(FlagEnableIPOperator, cmd.Flags().Lookup(FlagEnableIPOperator)); err != nil {
+		return nil
+	}
+
+
 	return cmd
 }
 
@@ -376,7 +393,12 @@ func createBidPricingStrategy(strategy string) (bidengine.BidPricingStrategy, er
 			return nil, err
 		}
 
-		return bidengine.MakeScalePricing(cpuScale, memoryScale, storageScale, endpointScale)
+		ipScale, err := strToBidPriceScale(viper.GetString(FlagBidPriceIpScale))
+		if err != nil {
+			return nil, err
+		}
+
+		return bidengine.MakeScalePricing(cpuScale, memoryScale, storageScale, endpointScale, ipScale)
 	}
 
 	if strategy == bidPricingStrategyRandomRange {
@@ -421,6 +443,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	providerConfig := viper.GetString(FlagProviderConfig)
 	cachedResultMaxAge := viper.GetDuration(FlagCachedResultMaxAge)
 	rpcQueryTimeout := viper.GetDuration(FlagRPCQueryTimeout)
+	enableIPOperator := viper.GetBool(FlagEnableIPOperator)
 
 	var metricsRouter http.Handler
 	if len(metricsListener) != 0 {
@@ -490,7 +513,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	log := openLogger()
+	log := openLogger().With("cmp","provider")
 
 	broadcaster, err := broadcaster.NewSerialClient(log, cctx, txFactory, info)
 	if err != nil {
@@ -604,7 +627,27 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	config.RPCQueryTimeout = rpcQueryTimeout
 	config.CachedResultMaxAge = cachedResultMaxAge
 
-	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, config)
+	// This value can be nil, the operator is not mandatory
+	var ipOperatorClient operator_clients.IPOperatorClient
+	if enableIPOperator {
+		ipOperatorClient, err = operator_clients.NewIPOperatorClient(log)
+		if err != nil {
+			return err
+		}
+	}
+
+	hostnameOperatorClient := operator_clients.NewHostnameOperatorClient(log)
+
+	waitClients := make([]waiter.Waitable, 0)
+	waitClients = append(waitClients, hostnameOperatorClient)
+
+	if ipOperatorClient != nil {
+		waitClients = append(waitClients, ipOperatorClient)
+	}
+
+	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), log, waitClients...)
+
+	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, ipOperatorClient, operatorWaiter, config)
 	if err != nil {
 		return err
 	}
@@ -614,6 +657,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		log,
 		service,
 		cquery,
+		ipOperatorClient,
 		gwaddr,
 		cctx.FromAddress,
 		[]tls.Certificate{cert},
@@ -659,6 +703,8 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 
 	err = group.Wait()
 	broadcaster.Close()
+	ipOperatorClient.Stop()
+	hostnameOperatorClient.Stop()
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -678,11 +724,11 @@ func createClusterClient(log log.Logger, _ *cobra.Command, configPath string) (c
 		// Condition that there is no Kubernetes API to work with.
 		return cluster.NullClient(), nil
 	}
-	ns := viper.GetString(FlagK8sManifestNS)
+	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 	if ns == "" {
-		return nil, fmt.Errorf("%w: --%s required", errInvalidConfig, FlagK8sManifestNS)
+		return nil, fmt.Errorf("%w: --%s required", errInvalidConfig, provider_flags.FlagK8sManifestNS)
 	}
-	return kube.NewPreparedClient(log, ns, configPath)
+	return kube.NewClient(log, ns, configPath)
 }
 
 func showErrorToUser(err error) error {

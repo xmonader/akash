@@ -168,7 +168,6 @@ func (o *order) run(checkForExistingBid bool) {
 		reservation ctypes.Reservation
 
 		won       bool
-		bidPlaced bool
 		msg       *mtypes.MsgCreateBid
 	)
 
@@ -193,6 +192,7 @@ func (o *order) run(checkForExistingBid bool) {
 		groupch = nil
 	}
 
+	bidPlaced := false
 loop:
 	for {
 		select {
@@ -203,6 +203,7 @@ loop:
 			err := queryBid.Error()
 			bidFound := true
 			if err != nil {
+				// Use super-advanced technique for detecting if bid is not on blockchain
 				if matchBidNotFound.MatchString(err.Error()) {
 					bidFound = false
 				} else {
@@ -360,7 +361,7 @@ loop:
 				}
 			}
 
-			// Resources reserved.
+			// Resources reserved
 			reservation = result.Value().(ctypes.Reservation)
 			if bidPlaced {
 				o.log.Info("Fulfillment already exists")
@@ -440,8 +441,10 @@ loop:
 			}
 		}
 
+
 		if bidPlaced {
-			o.log.Debug("closing bid")
+			o.log.Debug("closing bid", "order-id", o.orderID)
+
 			err := o.session.Client().Tx().Broadcast(ctx, &mtypes.MsgCloseBid{
 				BidID: mtypes.MakeBidID(o.orderID, o.session.Provider().Address()),
 			})
@@ -449,6 +452,7 @@ loop:
 				o.log.Error("closing bid", "err", err)
 				bidCounter.WithLabelValues("close", metricsutils.FailLabel).Inc()
 			} else {
+				o.log.Info("bid closed", "order-id", o.orderID)
 				bidCounter.WithLabelValues("close", metricsutils.SuccessLabel).Inc()
 			}
 		}

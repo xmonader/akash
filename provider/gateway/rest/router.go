@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	"io"
 	"net/http"
 	"strconv"
@@ -74,7 +76,7 @@ type wsStreamConfig struct {
 	client    cluster.ReadClient
 }
 
-func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ctxConfig map[interface{}]interface{}) *mux.Router {
+func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ipopclient operator_clients.IPOperatorClient, ctxConfig map[interface{}]interface{}) *mux.Router {
 
 	router := mux.NewRouter()
 
@@ -87,16 +89,23 @@ func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ctxCon
 		})
 	})
 
+
 	// GET /version
 	// provider version endpoint does not require authentication
 	router.HandleFunc("/version",
 		createVersionHandler(log, pclient)).
 		Methods(http.MethodGet)
 
+	// GET /address
+	// provider status endpoint does not require authentication
+	router.HandleFunc("/address",
+		createAddressHandler(log, addr)).
+		Methods("GET")
+
 	// GET /status
 	// provider status endpoint does not require authentication
 	router.HandleFunc("/status",
-		createStatusHandler(log, pclient)).
+		createStatusHandler(log, pclient, addr)).
 		Methods("GET")
 
 	// GET /validate
@@ -129,7 +138,7 @@ func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ctxCon
 
 	// GET /lease/<lease-id>/status
 	lrouter.HandleFunc("/status",
-		leaseStatusHandler(log, pclient.Cluster(), ctxConfig)).
+		leaseStatusHandler(log, pclient.Cluster(), ipopclient, ctxConfig)).
 		Methods(http.MethodGet)
 
 	// GET /lease/<lease-id>/kubeevents
@@ -396,7 +405,17 @@ func leaseShellHandler(log log.Logger, mclient pmanifest.Client, cclient cluster
 		if terminalSizeUpdate != nil {
 			close(terminalSizeUpdate)
 		}
+	}
+}
 
+func createAddressHandler(log log.Logger, providerAddr sdk.Address) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		data := struct {
+			Address string `json:"address"`
+		}{
+			Address: providerAddr.String(),
+		}
+		writeJSON(log, w, data)
 	}
 }
 
@@ -434,14 +453,21 @@ func createVersionHandler(log log.Logger, pclient provider.Client) http.HandlerF
 	}
 }
 
-func createStatusHandler(log log.Logger, sclient provider.StatusClient) http.HandlerFunc {
+func createStatusHandler(log log.Logger, sclient provider.StatusClient, providerAddr sdk.Address) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		status, err := sclient.Status(req.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(log, w, status)
+		data := struct{
+			provider.Status
+			Address string `json:"address"`
+		}{
+			Status: *status,
+			Address: providerAddr.String(),
+		}
+		writeJSON(log, w, data)
 	}
 }
 
@@ -529,10 +555,77 @@ func leaseKubeEventsHandler(log log.Logger, cclient cluster.ReadClient) http.Han
 	}
 }
 
-func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, clusterSettings map[interface{}]interface{}) http.HandlerFunc {
+func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient operator_clients.IPOperatorClient, clusterSettings map[interface{}]interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := util.ApplyToContext(req.Context(), clusterSettings)
-		status, err := cclient.LeaseStatus(ctx, requestLeaseID(req))
+
+		leaseID := requestLeaseID(req)
+		result := LeaseStatus{}
+
+		found, manifestGroup, err := cclient.GetManifestGroup(req.Context(), leaseID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if !found { // If the manifest doesn't exist, there is no lease
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		// TODO - There must be a bug below, as no IP data is showing up in the lease status
+		hasLeasedIPs := false
+		if ipopclient != nil {
+			manifestGroupSearchLoop:
+				for _, service := range manifestGroup.Services {
+					for _, expose := range service.Expose {
+						if 0 != len(expose.IP) {
+							hasLeasedIPs = true
+							break manifestGroupSearchLoop
+						}
+					}
+				}
+		}
+
+		var ipLeaseStatus []ipoptypes.LeaseIPStatus
+		if hasLeasedIPs {
+			log.Debug("querying for IP address status", "lease-id", leaseID)
+			ipLeaseStatus, err = ipopclient.GetIPAddressStatus(req.Context(), leaseID.OrderID())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			result.IPs = make(map[string][]LeasedIPStatus)
+
+			for _, ipLease := range ipLeaseStatus {
+				entries := result.IPs[ipLease.ServiceName]
+				if entries == nil {
+					entries = make([]LeasedIPStatus, 0)
+				}
+
+				entries = append(entries, LeasedIPStatus{
+					Port:         ipLease.Port,
+					ExternalPort: ipLease.ExternalPort,
+					Protocol:     ipLease.Protocol,
+					IP:           ipLease.IP,
+				})
+
+				result.IPs[ipLease.ServiceName] = entries
+			}
+
+		}
+
+		hasForwardedPorts := true // TODO - check manifest for this
+		if hasForwardedPorts {
+			result.ForwardedPorts, err = cclient.ForwardedPortStatus(ctx, leaseID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+
+		result.Services, err = cclient.LeaseStatus(ctx, leaseID)
 		if err != nil {
 			if errors.Is(err, kubeClient.ErrNoDeploymentForLease) {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -549,7 +642,10 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, clusterSetti
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(log, w, status)
+
+
+
+		writeJSON(log, w, result)
 	}
 }
 

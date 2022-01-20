@@ -21,7 +21,9 @@ install_network_policies() {
 }
 
 install_crd() {
+
   kubectl apply -f "$rootdir/pkg/apis/akash.network/crd.yaml"
+  kubectl apply -f "$rootdir/pkg/apis/akash.network/v1/provider_leased_ip_crd.yaml"
   kubectl apply -f "$rootdir/_docs/kustomize/storage/storageclass.yaml"
   kubectl patch node "${KIND_NAME}-control-plane" -p '{"metadata":{"labels":{"akash.network/storageclasses":"beta2.default"}}}'
   kubectl apply -f "https://raw.githubusercontent.com/ovrclk/k8s-inventory-operator/master/example/inventory-operator.yaml"

@@ -2,6 +2,7 @@ package sdl
 
 import (
 	"fmt"
+	providerUtil "github.com/ovrclk/akash/provider/cluster/util"
 	"path"
 	"sort"
 	"strconv"
@@ -9,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 
 	manifest "github.com/ovrclk/akash/manifest/v2beta1"
-	providerUtil "github.com/ovrclk/akash/provider/cluster/util"
+
 	types "github.com/ovrclk/akash/types/v1beta2"
 	dtypes "github.com/ovrclk/akash/x/deployment/types/v1beta2"
 )
@@ -32,6 +33,7 @@ const (
 	defaultSendTimeout    = uint32(60000)
 	upperLimitSendTimeout = defaultSendTimeout
 	defaultNextTries      = uint32(3)
+	endpointKindIP = "ip"
 )
 
 var (
@@ -39,6 +41,7 @@ var (
 	errCannotSpecifyOffAndOtherCases = errors.New("if 'off' is specified, no other cases may be specified")
 	errUnknownNextCase               = errors.New("next case is unknown")
 	errHTTPOptionNotAllowed          = errors.New("http option not allowed")
+	errSDLInvalid = errors.New("SDL invalid")
 )
 
 type v2 struct {
@@ -46,12 +49,18 @@ type v2 struct {
 	Services    map[string]v2Service    `yaml:"services,omitempty"`
 	Profiles    v2profiles              `yaml:"profiles,omitempty"`
 	Deployments map[string]v2Deployment `yaml:"deployment"`
+	Endpoints map[string]v2Endpoint `yaml:"endpoints"`
+}
+
+type v2Endpoint struct {
+	Kind string `yaml:"kind"`
 }
 
 type v2ExposeTo struct {
 	Service     string        `yaml:"service,omitempty"`
 	Global      bool          `yaml:"global,omitempty"`
 	HTTPOptions v2HTTPOptions `yaml:"http_options"`
+	IP string `yaml:"ip"`
 }
 
 type v2HTTPOptions struct {
@@ -179,9 +188,45 @@ type v2profiles struct {
 	Placement map[string]v2ProfilePlacement `yaml:"placement"`
 }
 
+func (sdl *v2) computeEndpointSequenceNumbers() map[string]uint32 {
+	var endpointNames []string
+
+	for _, serviceName := range v2DeploymentSvcNames(sdl.Deployments)  {
+
+		for _, expose := range sdl.Services[serviceName].Expose {
+			for _, to := range expose.To {
+				if to.Global && len(to.IP) == 0 {
+					continue
+				}
+
+				endpointNames = append(endpointNames, to.IP)
+			}
+		}
+	}
+
+	ipEndpointNames := make(map[string]uint32)
+	if len(endpointNames) == 0 {
+		return ipEndpointNames
+	}
+
+	// Make the assignment stable
+	sort.Strings(endpointNames)
+
+	// Start at zero, so the first assigned one is 1
+	endpointSeqNumber := uint32(0)
+	for _, name := range endpointNames {
+		endpointSeqNumber++
+		seqNo := endpointSeqNumber
+		ipEndpointNames[name] = seqNo
+	}
+
+	return ipEndpointNames
+}
+
 func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 	groups := make(map[string]*dtypes.GroupSpec)
 
+	ipEndpointNames := sdl.computeEndpointSequenceNumbers()
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 
@@ -220,28 +265,40 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 			endpoints := make([]types.Endpoint, 0)
 			for _, expose := range sdl.Services[svcName].Expose {
 				for _, to := range expose.To {
-					if to.Global {
-						proto, err := manifest.ParseServiceProtocol(expose.Proto)
-						if err != nil {
-							return nil, err
-						}
-						// This value is created just so it can be passed to the utility function
-						v := manifest.ServiceExpose{
-							Port:         expose.Port,
-							ExternalPort: expose.As,
-							Proto:        proto,
-							Service:      to.Service,
-							Global:       to.Global,
-							Hosts:        expose.Accept.Items,
-						}
-
-						kind := types.Endpoint_RANDOM_PORT
-						if providerUtil.ShouldBeIngress(v) {
-							kind = types.Endpoint_SHARED_HTTP
-						}
-
-						endpoints = append(endpoints, types.Endpoint{Kind: kind})
+					if !to.Global {
+						continue
 					}
+
+					proto, err := manifest.ParseServiceProtocol(expose.Proto)
+					if err != nil {
+						return nil, err
+					}
+					// This value is created just so it can be passed to the utility function
+					v := manifest.ServiceExpose{
+						Port:         expose.Port,
+						ExternalPort: expose.As,
+						Proto:        proto,
+						Service:      to.Service,
+						Global:       to.Global,
+						Hosts:        expose.Accept.Items,
+						IP: 		to.IP,
+					}
+
+					// Check to see if an IP endpoint is also specified
+					if v.Global && len(v.IP) != 0 {
+						seqNo := ipEndpointNames[v.IP]
+						v.EndpointSequenceNumber = seqNo
+						endpoints = append(endpoints,
+							types.Endpoint{Kind: types.Endpoint_LEASED_IP,
+							SequenceNumber: seqNo})
+					}
+
+					kind := types.Endpoint_RANDOM_PORT
+					if providerUtil.ShouldBeIngress(v) {
+						kind = types.Endpoint_SHARED_HTTP
+					}
+
+					endpoints = append(endpoints, types.Endpoint{Kind: kind})
 				}
 			}
 
@@ -268,6 +325,8 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 func (sdl *v2) Manifest() (manifest.Manifest, error) {
 	groups := make(map[string]*manifest.Group)
 
+	ipEndpointNames := sdl.computeEndpointSequenceNumbers()
+
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 
@@ -287,15 +346,9 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 			compute := sdl.Profiles.Compute[svcdepl.Profile]
 			svc := sdl.Services[svcName]
 
-			msvc := &manifest.Service{
-				Name:      svcName,
-				Image:     svc.Image,
-				Args:      svc.Args,
-				Env:       svc.Env,
-				Resources: toManifestResources(compute.Resources),
-				Count:     svcdepl.Count,
-				Command:   svc.Command,
-			}
+			manifestResources := toManifestResources(compute.Resources)
+
+			var manifestExpose []manifest.ServiceExpose
 
 			for _, expose := range svc.Expose {
 				proto, err := manifest.ParseServiceProtocol(expose.Proto)
@@ -310,7 +363,22 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 
 				if len(expose.To) != 0 {
 					for _, to := range expose.To {
-						msvc.Expose = append(msvc.Expose, manifest.ServiceExpose{
+
+						var seqNo uint32
+						if to.Global && len(to.IP) != 0 {
+							_, exists := sdl.Endpoints[to.IP]
+							if ! exists {
+								return nil, fmt.Errorf("unknown endpoint %q", to.IP)
+							}
+
+							seqNo = ipEndpointNames[to.IP]
+							manifestResources.Endpoints = append(manifestResources.Endpoints, types.Endpoint{
+								Kind:          types.Endpoint_LEASED_IP,
+								SequenceNumber: seqNo,
+							})
+						}
+
+						manifestExpose = append(manifestExpose, manifest.ServiceExpose{
 							Service:      to.Service,
 							Port:         expose.Port,
 							ExternalPort: expose.As,
@@ -318,10 +386,12 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 							Global:       to.Global,
 							Hosts:        expose.Accept.Items,
 							HTTPOptions:  httpOptions,
+							IP: to.IP,
+							EndpointSequenceNumber: seqNo,
 						})
 					}
 				} else { // Nothing explicitly set, fill in without any information from "expose.To"
-					msvc.Expose = append(msvc.Expose, manifest.ServiceExpose{
+					manifestExpose = append(manifestExpose, manifest.ServiceExpose{
 						Service:      "",
 						Port:         expose.Port,
 						ExternalPort: expose.As,
@@ -329,8 +399,20 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						Global:       false,
 						Hosts:        expose.Accept.Items,
 						HTTPOptions:  httpOptions,
+						IP: "",
 					})
 				}
+			}
+
+			msvc := manifest.Service{
+				Name:      svcName,
+				Image:     svc.Image,
+				Args:      svc.Args,
+				Env:       svc.Env,
+				Resources: manifestResources,
+				Count:     svcdepl.Count,
+				Command:   svc.Command,
+				Expose: manifestExpose,
 			}
 
 			if svc.Params != nil {
@@ -350,7 +432,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 				msvc.Params = params
 			}
 
-			// stable ordering
+			// stable ordering for the Expose portion
 			sort.Slice(msvc.Expose, func(i, j int) bool {
 				a, b := msvc.Expose[i], msvc.Expose[j]
 
@@ -373,7 +455,8 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 				return false
 			})
 
-			group.Services = append(group.Services, *msvc)
+
+			group.Services = append(group.Services, msvc)
 		}
 	}
 
@@ -393,6 +476,15 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 }
 
 func (sdl *v2) validate() error {
+	for endpointName, endpoint := range sdl.Endpoints {
+		if len(endpoint.Kind) == 0 {
+			return fmt.Errorf("%w: endpoint named %q has no kind", errSDLInvalid, endpointName)
+		}
+		// TODO - check that endpoint kind is valid
+	}
+
+	// TODO - check for endpoints declared but not used
+	portsUsed := make(map[string]string)
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
 
@@ -416,6 +508,34 @@ func (sdl *v2) validate() error {
 			svc, ok := sdl.Services[svcName]
 			if !ok {
 				return errors.Errorf("sdl: %v.%v: no service profile named %v", svcName, placementName, svcName)
+			}
+
+			for _, serviceExpose := range svc.Expose {
+				for _, to := range serviceExpose.To {
+					// Check to see if an IP endpoint is also specified
+					if len(to.IP) != 0 {
+						if !to.Global {
+							return fmt.Errorf("%w: error on %q if an IP is declared the directive must be declared as global", errSDLInvalid, svcName)
+						}
+						endpoint, endpointExists := sdl.Endpoints[to.IP]
+						if !endpointExists {
+							return fmt.Errorf("%w: error on service %q no endpoint named %q exists", errSDLInvalid, svcName, to.IP)
+						}
+
+						if endpoint.Kind != endpointKindIP {
+							return fmt.Errorf("%w: error on service %q endpoint %q has type %q, should be %q", errSDLInvalid, svcName, to.IP, endpoint.Kind, endpointKindIP)
+						}
+
+						// Endpoint exists. Now check for port collisions across a single endpoint, port, & protocol
+						portKey := fmt.Sprintf("%s-%d-%s", to.IP, serviceExpose.As, serviceExpose.Proto)
+						otherServiceName, inUse := portsUsed[portKey]
+						if inUse {
+							return fmt.Errorf("%w: IP endpoint %q port: %d protocol: %s specified by service %q already in use by %q", errSDLInvalid, to.IP, serviceExpose.Port, serviceExpose.Proto, svcName, otherServiceName)
+						}
+						portsUsed[portKey] = svcName
+					}
+
+				}
 			}
 
 			// validate storage's attributes and parameters

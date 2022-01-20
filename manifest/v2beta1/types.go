@@ -43,6 +43,7 @@ func (g Group) GetResources() []types.Resources {
 			Count:     s.Count,
 		})
 	}
+
 	return resources
 }
 
@@ -88,6 +89,8 @@ type ServiceExpose struct {
 	Global       bool
 	Hosts        []string
 	HTTPOptions  ServiceExposeHTTPOptions
+	IP	string
+	EndpointSequenceNumber uint32
 }
 
 type ServiceExposeHTTPOptions struct {
