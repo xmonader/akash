@@ -41,6 +41,29 @@ func (_m *ReadClient) AllHostnames(_a0 context.Context) ([]v1beta2.ActiveHostnam
 	return r0, r1
 }
 
+// ForwardedPortStatus provides a mock function with given fields: _a0, _a1
+func (_m *ReadClient) ForwardedPortStatus(_a0 context.Context, _a1 typesv1beta2.LeaseID) (map[string][]v1beta2.ForwardedPortStatus, error) {
+	ret := _m.Called(_a0, _a1)
+
+	var r0 map[string][]v1beta2.ForwardedPortStatus
+	if rf, ok := ret.Get(0).(func(context.Context, typesv1beta2.LeaseID) map[string][]v1beta2.ForwardedPortStatus); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string][]v1beta2.ForwardedPortStatus)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context, typesv1beta2.LeaseID) error); ok {
+		r1 = rf(_a0, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetHostnameDeploymentConnections provides a mock function with given fields: ctx
 func (_m *ReadClient) GetHostnameDeploymentConnections(ctx context.Context) ([]v1beta2.LeaseIDHostnameConnection, error) {
 	ret := _m.Called(ctx)
@@ -51,29 +74,6 @@ func (_m *ReadClient) GetHostnameDeploymentConnections(ctx context.Context) ([]v
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]v1beta2.LeaseIDHostnameConnection)
-		}
-	}
-
-	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// GetIPPassthroughs provides a mock function with given fields: ctx
-func (_m *ReadClient) GetIPPassthroughs(ctx context.Context) ([]cluster.IPPassthrough, error) {
-	ret := _m.Called(ctx)
-
-	var r0 []cluster.IPPassthrough
-	if rf, ok := ret.Get(0).(func(context.Context) []cluster.IPPassthrough); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]cluster.IPPassthrough)
 		}
 	}
 
@@ -162,15 +162,15 @@ func (_m *ReadClient) LeaseLogs(_a0 context.Context, _a1 typesv1beta2.LeaseID, _
 }
 
 // LeaseStatus provides a mock function with given fields: _a0, _a1
-func (_m *ReadClient) LeaseStatus(_a0 context.Context, _a1 typesv1beta2.LeaseID) (*v1beta2.LeaseStatus, error) {
+func (_m *ReadClient) LeaseStatus(_a0 context.Context, _a1 typesv1beta2.LeaseID) (map[string]*v1beta2.ServiceStatus, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 *v1beta2.LeaseStatus
-	if rf, ok := ret.Get(0).(func(context.Context, typesv1beta2.LeaseID) *v1beta2.LeaseStatus); ok {
+	var r0 map[string]*v1beta2.ServiceStatus
+	if rf, ok := ret.Get(0).(func(context.Context, typesv1beta2.LeaseID) map[string]*v1beta2.ServiceStatus); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*v1beta2.LeaseStatus)
+			r0 = ret.Get(0).(map[string]*v1beta2.ServiceStatus)
 		}
 	}
 
@@ -208,15 +208,15 @@ func (_m *ReadClient) ObserveHostnameState(ctx context.Context) (<-chan v1beta2.
 }
 
 // ObserveIPState provides a mock function with given fields: ctx
-func (_m *ReadClient) ObserveIPState(ctx context.Context) (<-chan cluster.IPResourceEvent, error) {
+func (_m *ReadClient) ObserveIPState(ctx context.Context) (<-chan v1beta2.IPResourceEvent, error) {
 	ret := _m.Called(ctx)
 
-	var r0 <-chan cluster.IPResourceEvent
-	if rf, ok := ret.Get(0).(func(context.Context) <-chan cluster.IPResourceEvent); ok {
+	var r0 <-chan v1beta2.IPResourceEvent
+	if rf, ok := ret.Get(0).(func(context.Context) <-chan v1beta2.IPResourceEvent); ok {
 		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan cluster.IPResourceEvent)
+			r0 = ret.Get(0).(<-chan v1beta2.IPResourceEvent)
 		}
 	}
 
