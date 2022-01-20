@@ -5,7 +5,6 @@ package kube
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -149,25 +148,6 @@ func applyService(ctx context.Context, kc kubernetes.Interface, b builder.Servic
 			_, err = kc.CoreV1().Services(b.NS()).Create(ctx, obj, metav1.CreateOptions{})
 			metricsutils.IncCounterVecWithLabelValues(kubeCallsCounter, "services-create", err)
 		}
-	}
-	return err
-}
-
-func prepareEnvironment(ctx context.Context, kc kubernetes.Interface, ns string) error {
-	_, err := kc.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
-	metricsutils.IncCounterVecWithLabelValuesFiltered(kubeCallsCounter, "namespaces-get", err, errors.IsNotFound)
-
-	if errors.IsNotFound(err) {
-		obj := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: ns,
-				Labels: map[string]string{
-					builder.AkashManagedLabelName: "true",
-				},
-			},
-		}
-		_, err = kc.CoreV1().Namespaces().Create(ctx, obj, metav1.CreateOptions{})
-		metricsutils.IncCounterVecWithLabelValues(kubeCallsCounter, "namespaces-create", err)
 	}
 	return err
 }

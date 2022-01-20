@@ -270,9 +270,6 @@ func (s *service) run(ctx context.Context, deployments []ctypes.Deployment) {
 		return
 	}
 
-	// TODO - a switch inside this logic that skips bidding on requests with leased IPs if the
-	// operator is not running
-
 	for _, deployment := range deployments {
 		key := deployment.LeaseID()
 		mgroup := deployment.ManifestGroup()

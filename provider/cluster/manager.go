@@ -177,12 +177,15 @@ loop:
 			switch dm.state {
 			case dsDeployActive:
 				if result != nil {
-					break loop
+					// Run the teardown code to get rid of anything created that might be hanging out
+					runch = dm.startTeardown()
+
+				} else {
+					dm.log.Debug("deploy complete")
+					dm.state = dsDeployComplete
+					dm.startMonitor()
+					dm.startWithdrawal()
 				}
-				dm.log.Debug("deploy complete")
-				dm.state = dsDeployComplete
-				dm.startMonitor()
-				dm.startWithdrawal()
 			case dsDeployPending:
 				if result != nil {
 					break loop
@@ -454,7 +457,6 @@ func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 		err = dm.client.DeclareIP(ctx, dm.lease, serviceExpose.name, uint32(port), uint32(externalPort), serviceExpose.expose.Proto, sharingKey)
 
 		if err != nil {
-			// TODO - on error undeclare IPs -- ?? actually needed or not ?? - do we have a label based delete that takes care of this?
 			return withheldHostnames, err
 		}
 		dm.currentIPs[serviceExpose.idIP()] = serviceExpose

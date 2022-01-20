@@ -19,8 +19,6 @@ type IgnoreListConfig struct {
 	AgeLimit time.Duration
 }
 
-// TODO - function to add these flags
-
 func IgnoreListConfigFromViper() IgnoreListConfig {
 	return IgnoreListConfig{
 		FailureLimit: viper.GetUint(FlagEventFailureLimit),

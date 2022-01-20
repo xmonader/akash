@@ -75,17 +75,7 @@ func (c *client) String() string {
 // NewClient returns new Kubernetes Client instance with provided logger, host and ns. Returns error incase of failure
 // configPath may be the empty string
 func NewClient(log log.Logger, ns string, configPath string) (Client, error) {
-	return newClientWithSettings(log, ns, configPath, false)
-}
-
-func NewPreparedClient(log log.Logger, ns string, configPath string) (Client, error) {
-	return newClientWithSettings(log, ns, configPath, true)
-}
-
-func newClientWithSettings(logger log.Logger, ns string, configPath string, prepare bool) (Client, error) {
-	ctx := context.Background() // TODO - make this an argument
-
-	config, err := client_common.OpenKubeConfig(configPath, logger)
+	config, err := client_common.OpenKubeConfig(configPath, log)
 	if err != nil {
 		return nil, errors.Wrap(err, "kube: error building config flags")
 	}
@@ -106,22 +96,12 @@ func newClientWithSettings(logger log.Logger, ns string, configPath string, prep
 		return nil, errors.Wrap(err, "kube: error creating metrics client")
 	}
 
-	if prepare {
-		if err := prepareEnvironment(ctx, kc, ns); err != nil {
-			return nil, errors.Wrap(err, "kube: error preparing environment")
-		}
-
-		if _, err := kc.CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1}); err != nil {
-			return nil, errors.Wrap(err, "kube: error connecting to kubernetes")
-		}
-	}
-
 	return &client{
 		kc:                kc,
 		ac:                mc,
 		metc:              metc,
 		ns:                ns,
-		log:               logger.With("client", "kube"),
+		log:               log.With("client", "kube"),
 		kubeContentConfig: config,
 	}, nil
 }

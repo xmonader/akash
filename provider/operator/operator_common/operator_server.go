@@ -35,10 +35,10 @@ func NewOperatorHttp() OperatorHttp {
 		_, _ = io.WriteString(rw, "OK")
 	})
 
-	// TODO - install standardized version & version-extended endpoints
 	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request){
 		rw.WriteHeader(http.StatusOK)
-		// TODO - write the version back
+		// TODO - write the version back in the standardized way from Arijit's Pr
+		io.WriteString(rw, "0.0.0")
 	}).Methods("GET")
 
 	return retval

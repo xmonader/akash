@@ -2,14 +2,13 @@ package provider
 
 import (
 	"context"
+	"github.com/boz/go-lifecycle"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankTypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	clustertypes "github.com/ovrclk/akash/provider/cluster/types"
 	"github.com/ovrclk/akash/provider/operator/waiter"
-
-	"github.com/boz/go-lifecycle"
 	"github.com/pkg/errors"
 
 	"github.com/ovrclk/akash/provider/bidengine"
@@ -85,18 +84,6 @@ func NewService(ctx context.Context,
 		cancel()
 		return nil, err
 	}
-
-	/**
-	TODO - revaluate this. I'm not sure actually what the point is here in waiting on this?
-	I can see it making sense to make sure the kube cluster is reachable, but I think we already do this
-	select {
-	case <-cluster.Ready():
-	case <-time.After(cfg.ClusterWaitReadyDuration):
-		session.Log().Error(ErrClusterReadTimedout.Error())
-		cancel()
-		<-cluster.Done()
-		return nil, ErrClusterReadTimedout
-	}**/
 
 	bidengine, err := bidengine.NewService(ctx, session, cluster, bus, waiter, bidengine.Config{
 		PricingStrategy: cfg.BidPricingStrategy,
