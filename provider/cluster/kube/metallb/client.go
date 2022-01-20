@@ -36,6 +36,10 @@ const (
 	metalLbAllowSharedIp = "metallb.universe.tf/allow-shared-ip"
 )
 
+var (
+	errInvalidLeaseService = fmt.Errorf("%w lease service error", errMetalLB)
+)
+
 
 type Client interface {
 	GetIPAddressUsage(ctx context.Context) (uint, uint, error)
@@ -304,14 +308,13 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 
 			// There is no mechanism that would assign more than one IP to a single service entry
 			if len(loadBalancerIngress) != 1 {
-				// TODO return an error indicating something is invalid
-				panic("invalid load balancer ingress")
+				return fmt.Errorf("%w: service %q has %d load balancers and is invalid", errInvalidLeaseService, service.ObjectMeta.Name, len(loadBalancerIngress))
 			}
 
 			ingress := loadBalancerIngress[0]
 
 			if len(service.Spec.Ports) != 1 {
-				panic("invalid port specs")
+				return fmt.Errorf("%w: service %q has %d port specs and is invalid", errInvalidLeaseService, service.ObjectMeta.Name, len(service.Spec.Ports))
 			}
 			port := service.Spec.Ports[0]
 
@@ -324,7 +327,7 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 			case corev1.ProtocolUDP:
 				proto = manifest.UDP
 			default:
-				panic("unknown proto from kube: " + string(port.Protocol))
+				return fmt.Errorf("%w: service %q has invalid protocol %v", errInvalidLeaseService, service.ObjectMeta.Name, len(port.Protocol))
 			}
 
 			selectedServiceName := service.Spec.Selector[builder.AkashManifestServiceLabelName]
@@ -498,17 +501,16 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]ctypes.IPPassthrough,
 			proto := portDefn.Protocol
 			port := portDefn.Port
 
+			leaseID, err := client_common.RecoverLeaseIdFromLabels(service.Labels)
+			if err != nil {
+				return fmt.Errorf("%w: service %q has invalid leease labels %v", err, service.ObjectMeta.Name, service.Labels)
+			}
+
 			// TODO - use a utlity method here rather than a cast
 			mproto, err := manifest.ParseServiceProtocol(string(proto))
 			if err != nil {
-				return err // TODO include resource name
+				return fmt.Errorf("%w: service %q has invalid protocol %v", err, service.ObjectMeta.Name, proto)
 			}
-
-			leaseID, err := client_common.RecoverLeaseIdFromLabels(service.Labels)
-			if err != nil {
-				return err // TODO include resource name
-			}
-
 
 			serviceSelector := service.Spec.Selector
 			serviceName := serviceSelector[builder.AkashManifestServiceLabelName]

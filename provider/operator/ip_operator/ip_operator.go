@@ -105,17 +105,13 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	}
 
 	op.log.Info("starting observation")
-	// Use a subcontext here for this, so it can be stopped when this function returns
-	ctx, cancel := context.WithCancel(parentCtx)
-	// TODO - why the heck does this need its own context ?
-	events, err := op.client.ObserveIPState(ctx)
+
+	events, err := op.client.ObserveIPState(parentCtx)
 	if err != nil {
-		cancel()
 		return err
 	}
 
 	if err := op.server.PrepareAll(); err != nil {
-		cancel()
 		return err
 	}
 
@@ -176,8 +172,8 @@ loop:
 		}
 	}
 	op.barrier.disable()
-	cancel()
 
+	// Wait for up to 30 seconds
 	ctxWithTimeout, timeoutCtxCancel := context.WithTimeout(context.Background(), time.Second * 30)
 	defer timeoutCtxCancel()
 
@@ -279,24 +275,12 @@ func getStateKeyFromEvent(ev ctypes.IPResourceEvent) string{
 	return getStateKey(ev.GetLeaseID(), ev.GetSharingKey(), ev.GetExternalPort())
 }
 
-func (op *ipOperator) decrInUse() uint { // TODO - is this needed
-	if op.inUse != 0 {
-		op.inUse--
-	}
-	return op.inUse
-}
-
-func (op *ipOperator) incrInUse() uint { // TODO - is this needed
-	op.inUse++
-	return op.inUse
-}
-
 func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPResourceEvent) error {
 	leaseID := ev.GetLeaseID()
 
 	uid := getStateKeyFromEvent(ev)
 
-	op.log.Debug("connecting",
+	op.log.Info("connecting",
 		"lease", leaseID,
 		"service", ev.GetServiceName(),
 		"externalPort", ev.GetExternalPort())
@@ -309,7 +293,7 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 
 	if !exists {
 		shouldConnect = true
-		op.log.Debug("ip passthrough is new, applying")
+		op.log.Debug("ip passthrough is new, applying", "lease", leaseID)
 		// Check to see if port or service name is different
 	} else {
 		hasChanged := entry.presentServiceName != ev.GetServiceName() ||
@@ -318,12 +302,12 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 			entry.presentExternalPort != ev.GetExternalPort()
 		if hasChanged {
 			shouldConnect = true
-			op.log.Debug("ip passthrough has changed, applying")
+			op.log.Debug("ip passthrough has changed, applying", "lease", leaseID)
 		}
 	}
 
 	if shouldConnect {
-		op.log.Debug("Updating ip passthrough")
+		op.log.Debug("Updating ip passthrough", "lease", leaseID)
 		err = op.mllbc.CreateIPPassthrough(ctx, leaseID, directive)
 	}
 
@@ -342,10 +326,9 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes.IPRes
 	op.state[uid] = entry
 	op.flagState()
 
-	// TODO - log that update occurred
+	op.log.Info("update complete", "lease", leaseID)
 
-
-	return err
+	return nil
 }
 
 func (op *ipOperator) webRouter() http.Handler {
@@ -373,13 +356,10 @@ func (op *ipOperator) prepareUsage(pd operator_common.PreparedResult) error {
 }
 
 func (op *ipOperator) prepareState(pd operator_common.PreparedResult) error {
-
 	results := make(map[string][]interface{})
 	for _, managedIpEntry := range op.state {
 		leaseID := managedIpEntry.presentLease
 
-
-		// TODO - add the resource name in kubernetes, for diagnostic reasons
 		result := struct{
 			LastChangeTime string `json:"last-event-time,omitempty"`
 			LeaseID      mtypes.LeaseID `json:"lease-id"`
