@@ -26,7 +26,10 @@ configMapGenerator:
       - cluster-node-port-quantity=100
       - bid-price-strategy=randomRange
       - deployment-runtime-class=none
+      - ip-operator=true
       # - ingress-static-hosts=false
+
+
 
 patchesJson6902:
 
