@@ -494,7 +494,7 @@ func (c *client) LeaseStatus(ctx context.Context, lid mtypes.LeaseID) (map[strin
 	kubeSelectorForLease(labelSelector, lid)
 	// Note: this is a separate call to the Kubernetes API to get this data. It could
 	// be a separate method on the interface entirely
-	phResult, err := c.ac.AkashV1().ProviderHosts(c.ns).List(ctx, metav1.ListOptions{
+	phResult, err := c.ac.AkashV2beta1().ProviderHosts(c.ns).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector.String(),
 	})
 
