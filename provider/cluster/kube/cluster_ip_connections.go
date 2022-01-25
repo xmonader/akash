@@ -74,7 +74,6 @@ func (c *client) DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceName 
 		"exists", exists)
 	// Create or update the entry
 	if exists {
-		// TODO - make this call - only issue an update if the contents have changed
 		obj.ObjectMeta.ResourceVersion = foundEntry.ResourceVersion
 		_, err = c.ac.AkashV2beta1().ProviderLeasedIPs(c.ns).Update(ctx, &obj, metav1.UpdateOptions{})
 	} else {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/avast/retry-go"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
@@ -53,7 +52,6 @@ func (_ ipOperatorNullClient) Stop(){}
 func (_ ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
 	return nil, errNotImplemented
 }
-
 
 func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
 	sda := clusterutil.NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp")
@@ -209,16 +207,6 @@ func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 	}
 
 	return result, nil
-}
-
-func ipOperatorClientRetry(ctx context.Context) []retry.Option {
-	return []retry.Option{
-		retry.Context(ctx),
-		retry.DelayType(retry.BackOffDelay),
-		retry.MaxDelay(time.Second * 120), // TODO - lower me
-		retry.Attempts(15),
-		retry.LastErrorOnly(true),
-	}
 }
 
 func extractRemoteError(response *http.Response) error{

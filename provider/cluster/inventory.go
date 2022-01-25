@@ -535,7 +535,7 @@ loop:
 			req.ch <- inventoryResponse{err: errReservationNotFound}
 
 		case responseCh := <-is.statusch:
-			responseCh <- is.getStatus(state.inventory, state.reservations) // TODO - change to take state arg
+			responseCh <- is.getStatus(state)
 			inventoryRequestsCounter.WithLabelValues("status", "success").Inc()
 
 		case <-t.C:
@@ -698,14 +698,14 @@ func (is *inventoryService) runCheck(ctx context.Context, state *inventoryServic
 	})
 }
 
-func (is *inventoryService) getStatus(inventory ctypes.Inventory, reservations []*reservation) ctypes.InventoryStatus {
+func (is *inventoryService) getStatus(state *inventoryServiceState) ctypes.InventoryStatus {
 	status := ctypes.InventoryStatus{}
-	if inventory == nil {
+	if state.inventory == nil {
 		status.Error = errInventoryNotAvailableYet
 		return status
 	}
 
-	for _, reservation := range reservations {
+	for _, reservation := range state.reservations {
 		total := ctypes.InventoryMetricTotal{
 			Storage: make(map[string]int64),
 		}
@@ -721,11 +721,11 @@ func (is *inventoryService) getStatus(inventory ctypes.Inventory, reservations [
 		}
 	}
 
-	for _, nd := range inventory.Metrics().Nodes {
+	for _, nd := range state.inventory.Metrics().Nodes {
 		status.Available.Nodes = append(status.Available.Nodes, nd.Available)
 	}
 
-	for class, size := range inventory.Metrics().TotalAvailable.Storage {
+	for class, size := range state.inventory.Metrics().TotalAvailable.Storage {
 		status.Available.Storage = append(status.Available.Storage, ctypes.InventoryStorageStatus{Class: class, Size: size})
 	}
 	return status
