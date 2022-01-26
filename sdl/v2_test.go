@@ -1,7 +1,6 @@
 package sdl
 
 import (
-	types "github.com/ovrclk/akash/types/v1beta2"
 	"testing"
 
 	"github.com/ovrclk/akash/validation"
@@ -204,6 +203,7 @@ func Test_v1_Parse_simple(t *testing.T) {
 	}, mani.GetGroups()[0])
 }
 
+/**
 func Test_v1_Parse_simpleWithIP(t *testing.T) {
 	sdl, err := ReadFile("./_testdata/simple_with_ip.yaml")
 	require.NoError(t, err)
@@ -238,7 +238,7 @@ func Test_v1_Parse_simpleWithIP(t *testing.T) {
 	require.Equal(t, exposeIP.Proto, manifest.UDP)
 	require.Equal(t, exposeIP.Port, uint16(12345))
 	require.True(t, exposeIP.Global)
-}
+}**/
 
 func Test_v1_Parse_ProfileNameNotServiceName(t *testing.T) {
 	sdl, err := ReadFile("./_testdata/profile-svc-name-mismatch.yaml")
