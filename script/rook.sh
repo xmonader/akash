@@ -18,8 +18,10 @@ rook_files=(
 	"${ROOK_PATH}/operator.yaml"
 	"${ROOK_PATH}/cluster.yaml"
 	"${ROOK_PATH}/toolbox.yaml"
-	"${ROOK_PATH}/pool.yaml"
-	"${ROOK_PATH}/storageclass.yaml"
+	"${ROOK_PATH}/akash-nodes-pool.yaml"
+	"${ROOK_PATH}/akash-deployments-pool.yaml"
+	"${ROOK_PATH}/akash-nodes-storageclass.yaml"
+	"${ROOK_PATH}/akash-deployments-storageclass.yaml"
 )
 
 for idx in "${!rook_files[@]}"; do
@@ -170,6 +172,7 @@ health)
 Available Commands:
   deploy             Deploy a rook
   teardown           Teardown a rook
+  health             Check cluster health
 " >&2
 	;;
 esac
