@@ -573,7 +573,6 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 			return
 		}
 
-		// TODO - There must be a bug below, as no IP data is showing up in the lease status
 		hasLeasedIPs := false
 		if ipopclient != nil {
 			manifestGroupSearchLoop:

@@ -480,10 +480,14 @@ func (sdl *v2) validate() error {
 		if len(endpoint.Kind) == 0 {
 			return fmt.Errorf("%w: endpoint named %q has no kind", errSDLInvalid, endpointName)
 		}
-		// TODO - check that endpoint kind is valid
+
+		// Validate endpoint kind, there is only one allowed value for now
+		if endpoint.Kind != endpointKindIP {
+			return fmt.Errorf("%w: endpoint named %q, unknown kind %q", errSDLInvalid, endpointName, endpoint.Kind)
+		}
 	}
 
-	// TODO - check for endpoints declared but not used
+	endpointsUsed :=  make(map[string]struct{})
 	portsUsed := make(map[string]string)
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
@@ -493,21 +497,21 @@ func (sdl *v2) validate() error {
 
 			compute, ok := sdl.Profiles.Compute[svcdepl.Profile]
 			if !ok {
-				return errors.Errorf("sdl: %v.%v: no compute profile named %v", svcName, placementName, svcdepl.Profile)
+				return fmt.Errorf("%w: %v.%v: no compute profile named %v", errSDLInvalid, svcName, placementName, svcdepl.Profile)
 			}
 
 			infra, ok := sdl.Profiles.Placement[placementName]
 			if !ok {
-				return errors.Errorf("sdl: %v.%v: no placement profile named %v", svcName, placementName, placementName)
+				return fmt.Errorf("%w: %v.%v: no placement profile named %v", errSDLInvalid, svcName, placementName, placementName)
 			}
 
 			if _, ok := infra.Pricing[svcdepl.Profile]; !ok {
-				return errors.Errorf("sdl: %v.%v: no pricing for profile %v", svcName, placementName, svcdepl.Profile)
+				return fmt.Errorf("%w: %v.%v: no pricing for profile %v", errSDLInvalid, svcName, placementName, svcdepl.Profile)
 			}
 
 			svc, ok := sdl.Services[svcName]
 			if !ok {
-				return errors.Errorf("sdl: %v.%v: no service profile named %v", svcName, placementName, svcName)
+				return fmt.Errorf("%w: %v.%v: no service profile named %v", errSDLInvalid, svcName, placementName, svcName)
 			}
 
 			for _, serviceExpose := range svc.Expose {
@@ -525,6 +529,8 @@ func (sdl *v2) validate() error {
 						if endpoint.Kind != endpointKindIP {
 							return fmt.Errorf("%w: error on service %q endpoint %q has type %q, should be %q", errSDLInvalid, svcName, to.IP, endpoint.Kind, endpointKindIP)
 						}
+
+						endpointsUsed[to.IP] = struct{}{}
 
 						// Endpoint exists. Now check for port collisions across a single endpoint, port, & protocol
 						portKey := fmt.Sprintf("%s-%d-%s", to.IP, serviceExpose.As, serviceExpose.Proto)
@@ -559,11 +565,11 @@ func (sdl *v2) validate() error {
 			if svc.Params != nil {
 				for name, params := range svc.Params.Storage {
 					if _, exists := volumes[name]; !exists {
-						return errors.Errorf("sdl: service \"%s\" references to no-existing compute volume named \"%s\"", svcName, name)
+						return fmt.Errorf("%w: service \"%s\" references to no-existing compute volume named \"%s\"", errSDLInvalid, svcName, name)
 					}
 
 					if !path.IsAbs(params.Mount) {
-						return errors.Errorf("sdl: invalid value for \"service.%s.params.%s.mount\" parameter. expected absolute path", svcName, name)
+						return fmt.Errorf("%w: invalid value for \"service.%s.params.%s.mount\" parameter. expected absolute path", errSDLInvalid, svcName, name)
 					}
 
 					attr[StorageAttributeMount] = params.Mount
@@ -575,7 +581,7 @@ func (sdl *v2) validate() error {
 							return errStorageMultipleRootEphemeral
 						}
 
-						return errors.Wrap(errStorageDupMountPoint, fmt.Sprintf("sdl: mount \"%s\" already in use by volume \"%s\"", mount, vlname))
+						return fmt.Errorf("%w: mount %q already in use by volume %q" , errStorageDupMountPoint, mount, vlname)
 					}
 
 					mounts[mount] = name
@@ -590,9 +596,16 @@ func (sdl *v2) validate() error {
 				persistent, _ := strconv.ParseBool(attr[StorageAttributePersistent])
 
 				if persistent && attr[StorageAttributeMount] == "" {
-					return errors.Errorf("sdl: compute.storage.%s has persistent=true which requires service.%s.params.storage.%s to have mount", name, svcName, name)
+					return fmt.Errorf("%w: compute.storage.%s has persistent=true which requires service.%s.params.storage.%s to have mount", errSDLInvalid, name, svcName, name)
 				}
 			}
+		}
+	}
+
+	for endpointName, _ := range sdl.Endpoints {
+		_, inUse := endpointsUsed[endpointName]
+		if !inUse {
+			return fmt.Errorf("%w: endpoint %q declared but never used", errSDLInvalid, endpointName)
 		}
 	}
 

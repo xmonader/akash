@@ -1,7 +1,6 @@
 package v2beta1
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 
@@ -325,7 +324,6 @@ type ManifestServiceExposeHTTPOptions struct {
 func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 	proto, err := manifest.ParseServiceProtocol(mse.Proto)
 	if err != nil {
-		fmt.Printf("foobar: %q\n", mse.Proto)
 		return manifest.ServiceExpose{}, err
 	}
 	return manifest.ServiceExpose{
