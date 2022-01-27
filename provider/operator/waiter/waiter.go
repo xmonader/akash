@@ -15,6 +15,16 @@ type Waitable interface {
 	String() string
 }
 
+type nullWaiter struct {}
+
+func (nw nullWaiter) WaitForAll(ctx context.Context)error{
+	return nil
+}
+
+func NewNullWaiter() OperatorWaiter {
+	return nullWaiter{}
+}
+
 type operatorWaiter struct {
 	waitables []Waitable
 	log log.Logger

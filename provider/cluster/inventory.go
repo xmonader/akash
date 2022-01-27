@@ -624,7 +624,9 @@ loop:
 		<-runch
 	}
 
-	is.ipOperator.Stop()
+	if is.ipOperator != nil {
+		is.ipOperator.Stop()
+	}
 }
 
 type confirmationItem struct {

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"github.com/ovrclk/akash/provider/operator/waiter"
 	"testing"
 	"time"
 
@@ -131,6 +132,8 @@ func TestInventory_ClusterDeploymentNotDeployed(t *testing.T) {
 		donech,
 		subscriber,
 		clusterClient,
+		nil, // No IP operator client
+		waiter.NewNullWaiter(), // Do not need to wait in test
 		deployments)
 	require.NoError(t, err)
 	require.NotNil(t, inv)
@@ -214,6 +217,8 @@ func TestInventory_ClusterDeploymentDeployed(t *testing.T) {
 		donech,
 		subscriber,
 		clusterClient,
+		nil, // No IP operator client
+		waiter.NewNullWaiter(), // Do not need to wait in test
 		deployments)
 	require.NoError(t, err)
 	require.NotNil(t, inv)
@@ -349,6 +354,8 @@ func TestInventory_OverReservations(t *testing.T) {
 		donech,
 		subscriber,
 		clusterClient,
+		nil, // No IP operator client
+		waiter.NewNullWaiter(), // Do not need to wait in test
 		make([]ctypes.Deployment, 0))
 	require.NoError(t, err)
 	require.NotNil(t, inv)
