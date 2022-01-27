@@ -35,6 +35,8 @@ var (
 	errReservationNotFound      = errors.New("reservation not found")
 	errInventoryNotAvailableYet = errors.New("inventory status not available yet")
 	errInventoryReservation = errors.New("inventory error")
+	errNoLeasedIPsAvailable = fmt.Errorf("%w: no leased IPs available", errInventoryReservation)
+	errInsufficientIPs = fmt.Errorf("%w: insufficient number of IPs", errInventoryReservation)
 )
 
 var (
@@ -370,15 +372,14 @@ func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequ
 
 	if reservation.endpointQuantity != 0 {
 		if is.ipOperator == nil {
-
-			req.ch <- inventoryResponse{err: fmt.Errorf("%w: no leased IPs available", errInventoryReservation)}
+			req.ch <- inventoryResponse{err: errNoLeasedIPsAvailable}
 			return
 		}
 		numIPUnused := state.ipAddrUsage.Available - state.ipAddrUsage.InUse
 		numIPUnused -= countPendingIPs(state)
 		if reservation.endpointQuantity > numIPUnused {
 			is.log.Info("insufficient number of IP addresses available", "order", req.order)
-			req.ch <- inventoryResponse{err: fmt.Errorf("%w: unable to reserve %d leased IPs", errInventoryReservation, reservation.endpointQuantity)}
+			req.ch <- inventoryResponse{err: fmt.Errorf("%w: unable to reserve %d", errInsufficientIPs, reservation.endpointQuantity)}
 			return
 		}
 

@@ -2,7 +2,9 @@ package cluster
 
 import (
 	"context"
+	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	"github.com/ovrclk/akash/provider/operator/waiter"
+	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"testing"
 	"time"
 
@@ -132,7 +134,7 @@ func TestInventory_ClusterDeploymentNotDeployed(t *testing.T) {
 		donech,
 		subscriber,
 		clusterClient,
-		nil, // No IP operator client
+		operator_clients.NullIPOperatorClient(), // This client is not used in this test
 		waiter.NewNullWaiter(), // Do not need to wait in test
 		deployments)
 	require.NoError(t, err)
@@ -277,6 +279,204 @@ func TestInventory_ClusterDeploymentDeployed(t *testing.T) {
 	<-inv.lc.Done()
 }
 
+
+type inventoryScaffold struct {
+	leaseIDs []mtypes.LeaseID
+	donech chan struct{}
+	inventoryCalled chan struct{}
+	bus pubsub.Bus
+	clusterClient *mocks.Client
+}
+
+func makeInventoryScaffold(t *testing.T, leaseQty uint) *inventoryScaffold{
+	scaffold := &inventoryScaffold{
+		donech: make(chan struct{}),
+		inventoryCalled: make(chan struct{}, 1),
+	}
+
+	for i := uint(0); i != leaseQty; i ++ {
+		scaffold.leaseIDs = append(scaffold.leaseIDs, testutil.LeaseID(t))
+	}
+
+	scaffold.bus = pubsub.NewBus()
+
+	groupServices := make([]manifest.Service, 1)
+	serviceCount := testutil.RandRangeInt(1, 50)
+	serviceEndpoints := make([]types.Endpoint, serviceCount)
+
+	countOfRandomPortService := testutil.RandRangeInt(0, serviceCount)
+	for i := range serviceEndpoints {
+		if i < countOfRandomPortService {
+			serviceEndpoints[i].Kind = types.Endpoint_RANDOM_PORT
+		} else {
+			serviceEndpoints[i].Kind = types.Endpoint_SHARED_HTTP
+		}
+	}
+
+	deploymentRequirements := types.ResourceUnits{
+		CPU: &types.CPU{
+			Units: types.NewResourceValue(4000),
+		},
+		Memory: &types.Memory{
+			Quantity: types.NewResourceValue(30 * unit.Gi),
+		},
+		Storage: types.Volumes{
+			types.Storage{
+				Name:     "default",
+				Quantity: types.NewResourceValue((100 * unit.Gi) - 1*unit.Mi),
+			},
+		},
+	}
+
+	deploymentRequirements.Endpoints = serviceEndpoints
+
+	groupServices[0] = manifest.Service{
+		Count:     1,
+		Resources: deploymentRequirements,
+	}
+
+	cclient := &mocks.Client{}
+
+	// Create an inventory set that has enough resources for the deployment
+	clusterInv := newInventory("nodeA")
+
+	cclient.On("Inventory", mock.Anything).Run(func(args mock.Arguments) {
+		scaffold.inventoryCalled <- struct{}{}
+	}).Return(clusterInv, nil)
+
+	scaffold.clusterClient = cclient
+
+	return scaffold
+}
+
+func makeGroupForInventoryTest(sharedHttp, nodePort, leasedIP bool) manifest.Group {
+	groupServices := make([]manifest.Service, 1)
+
+	serviceEndpoints := make([]types.Endpoint, 0)
+	seqno := uint32(0)
+	if sharedHttp {
+		serviceEndpoint := types.Endpoint{
+			Kind:           types.Endpoint_SHARED_HTTP,
+			SequenceNumber: seqno,
+		}
+		serviceEndpoints = append(serviceEndpoints, serviceEndpoint)
+	}
+
+	if nodePort {
+		serviceEndpoint := types.Endpoint{
+			Kind:           types.Endpoint_RANDOM_PORT,
+			SequenceNumber: seqno,
+		}
+		serviceEndpoints = append(serviceEndpoints, serviceEndpoint)
+	}
+
+	if leasedIP {
+		serviceEndpoint := types.Endpoint{
+			Kind:           types.Endpoint_LEASED_IP,
+			SequenceNumber: seqno,
+		}
+		serviceEndpoints = append(serviceEndpoints, serviceEndpoint)
+	}
+
+	deploymentRequirements := types.ResourceUnits{
+		CPU: &types.CPU{
+			Units: types.NewResourceValue(4000),
+		},
+		Memory: &types.Memory{
+			Quantity: types.NewResourceValue(30 * unit.Gi),
+		},
+		Storage: types.Volumes{
+			types.Storage{
+				Name:     "default",
+				Quantity: types.NewResourceValue((100 * unit.Gi) - 1*unit.Mi),
+			},
+		},
+	}
+	deploymentRequirements.Endpoints = serviceEndpoints
+
+	groupServices[0] = manifest.Service{
+		Count:     1,
+		Resources: deploymentRequirements,
+	}
+	group := manifest.Group{
+		Name:     "nameForGroup",
+		Services: groupServices,
+	}
+
+	return group
+}
+
+func TestInventory_ReserveIPNoIPOperator(t *testing.T) {
+	config := Config{
+		InventoryResourcePollPeriod:     5 * time.Second,
+		InventoryResourceDebugFrequency: 1,
+		InventoryExternalPortQuantity:   1000,
+	}
+	scaffold := makeInventoryScaffold(t, 10)
+	defer scaffold.bus.Close()
+
+	myLog := testutil.Logger(t)
+
+	subscriber, err := scaffold.bus.Subscribe()
+	require.NoError(t, err)
+	inv, err := newInventoryService(
+		config,
+		myLog,
+		scaffold.donech,
+		subscriber,
+		scaffold.clusterClient,
+		nil, // No IP operator client
+		waiter.NewNullWaiter(), // Do not need to wait in test
+		make([]ctypes.Deployment, 0))
+	require.NoError(t, err)
+	require.NotNil(t, inv)
+
+	group := makeGroupForInventoryTest(false, false, true)
+	reservation, err := inv.reserve(scaffold.leaseIDs[0].OrderID(), group)
+	require.ErrorIs(t, err, errNoLeasedIPsAvailable)
+	require.Nil(t, reservation)
+
+	// Shut everything down
+	close(scaffold.donech)
+	<-inv.lc.Done()
+}
+
+func TestInventory_ReserveIPWithIPOperator(t *testing.T) {
+	config := Config{
+		InventoryResourcePollPeriod:     5 * time.Second,
+		InventoryResourceDebugFrequency: 1,
+		InventoryExternalPortQuantity:   1000,
+	}
+	scaffold := makeInventoryScaffold(t, 10)
+	defer scaffold.bus.Close()
+
+	myLog := testutil.Logger(t)
+
+	subscriber, err := scaffold.bus.Subscribe()
+	require.NoError(t, err)
+
+	inv, err := newInventoryService(
+		config,
+		myLog,
+		scaffold.donech,
+		subscriber,
+		scaffold.clusterClient,
+		nil,                    // TODO - set me
+		waiter.NewNullWaiter(), // Do not need to wait in test
+		make([]ctypes.Deployment, 0))
+	require.NoError(t, err)
+	require.NotNil(t, inv)
+
+	group := makeGroupForInventoryTest(false, false, true)
+	reservation, err := inv.reserve(scaffold.leaseIDs[0].OrderID(), group)
+	require.NoError(t, err)
+	require.NotNil(t, reservation)
+
+	// Shut everything down
+	close(scaffold.donech)
+	<-inv.lc.Done()
+}
+
 func TestInventory_OverReservations(t *testing.T) {
 	lid0 := testutil.LeaseID(t)
 	lid1 := testutil.LeaseID(t)
@@ -321,7 +521,6 @@ func TestInventory_OverReservations(t *testing.T) {
 			},
 		},
 	}
-
 	deploymentRequirements.Endpoints = serviceEndpoints
 
 	groupServices[0] = manifest.Service{
@@ -332,10 +531,6 @@ func TestInventory_OverReservations(t *testing.T) {
 		Name:     "nameForGroup",
 		Services: groupServices,
 	}
-
-	deployment := &mocks.Deployment{}
-	deployment.On("ManifestGroup").Return(group)
-	deployment.On("LeaseID").Return(lid1)
 
 	clusterClient := &mocks.Client{}
 
@@ -364,12 +559,12 @@ func TestInventory_OverReservations(t *testing.T) {
 	<-inventoryCalled
 
 	// Get the reservation
-	reservation, err := inv.reserve(lid0.OrderID(), deployment.ManifestGroup())
+	reservation, err := inv.reserve(lid0.OrderID(), group)
 	require.NoError(t, err)
 	require.NotNil(t, reservation)
 
 	// Confirm the second reservation would be too much
-	_, err = inv.reserve(lid1.OrderID(), deployment.ManifestGroup())
+	_, err = inv.reserve(lid1.OrderID(), group)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ctypes.ErrInsufficientCapacity)
 
@@ -388,7 +583,7 @@ func TestInventory_OverReservations(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Confirm the second reservation still is too much
-	_, err = inv.reserve(lid1.OrderID(), deployment.ManifestGroup())
+	_, err = inv.reserve(lid1.OrderID(), group)
 	require.ErrorIs(t, err, ctypes.ErrInsufficientCapacity)
 
 	// Wait for second call to inventory
