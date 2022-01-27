@@ -31,7 +31,7 @@ type IPOperatorClient interface{
 
 /* A null client for use in tests and other scenarios */
 type ipOperatorNullClient struct{}
-func NullClient() IPOperatorClient {
+func NullIPOperatorClient() IPOperatorClient {
 	return ipOperatorNullClient{}
 }
 
