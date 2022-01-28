@@ -13,7 +13,7 @@ func newReservation(order mtypes.OrderID, resources atypes.ResourceGroup) *reser
 	return &reservation{
 		order: order,
 		resources: resources,
-		endpointQuantity: util.GetEndpointQuantity(resources, atypes.Endpoint_LEASED_IP)}
+		endpointQuantity: util.GetEndpointQuantityOfResourceGroup(resources, atypes.Endpoint_LEASED_IP)}
 }
 
 type reservation struct {

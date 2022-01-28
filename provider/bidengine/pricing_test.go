@@ -275,7 +275,7 @@ func Test_ScalePricingForIPs(t *testing.T) {
 		SequenceNumber: 1367,
 	})
 
-	require.Equal(t, uint(1), util.GetEndpointQuantity(gspec, atypes.Endpoint_LEASED_IP))
+	require.Equal(t, uint(1), util.GetEndpointQuantityOfResourceGroup(gspec, atypes.Endpoint_LEASED_IP))
 	price, err := pricing.CalculatePrice(context.Background(), testutil.AccAddress(t).String(), gspec)
 	require.NoError(t, err)
 
@@ -286,7 +286,7 @@ func Test_ScalePricingForIPs(t *testing.T) {
 		Kind:           atypes.Endpoint_LEASED_IP,
 		SequenceNumber: 1368,
 	})
-	require.Equal(t, uint(2), util.GetEndpointQuantity(gspec, atypes.Endpoint_LEASED_IP))
+	require.Equal(t, uint(2), util.GetEndpointQuantityOfResourceGroup(gspec, atypes.Endpoint_LEASED_IP))
 	price, err = pricing.CalculatePrice(context.Background(), testutil.AccAddress(t).String(), gspec)
 	require.NoError(t, err)
 
@@ -584,6 +584,7 @@ func Test_ScriptPricingWritesJsonToStdin(t *testing.T) {
 		require.Equal(t, r.Resources.Storage[0].Quantity.Val.Uint64(), data[i].Storage[0].Size)
 		require.Equal(t, r.Count, data[i].Count)
 		require.Equal(t, len(r.Resources.Endpoints), data[i].EndpointQuantity)
+		require.Equal(t, util.GetEndpointQuantityOfResourceUnits(r.Resources, atypes.Endpoint_LEASED_IP), data[i].IPLeaseQuantity)
 	}
 }
 

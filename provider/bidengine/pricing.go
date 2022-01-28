@@ -135,7 +135,7 @@ func (fp scalePricing) CalculatePrice(_ context.Context, _ string, gspec *dtypes
 
 	endpointTotal := decimal.NewFromInt(0)
 	ipTotal := decimal.NewFromInt(0).Add(fp.ipScale)
-	ipTotal = ipTotal.Mul(decimal.NewFromInt(int64(util.GetEndpointQuantity(gspec, atypes.Endpoint_LEASED_IP))))
+	ipTotal = ipTotal.Mul(decimal.NewFromInt(int64(util.GetEndpointQuantityOfResourceGroup(gspec, atypes.Endpoint_LEASED_IP))))
 
 	// iterate over everything & sum it up
 	for _, group := range gspec.Resources {
@@ -395,7 +395,7 @@ func (ssp shellScriptPricing) CalculatePrice(ctx context.Context, owner string, 
 			Storage:          storageQuantity,
 			Count:            groupCount,
 			EndpointQuantity: endpointQuantity,
-			IPLeaseQuantity: util.GetEndpointQuantity(gspec, atypes.Endpoint_LEASED_IP),
+			IPLeaseQuantity: util.GetEndpointQuantityOfResourceUnits(group.Resources, atypes.Endpoint_LEASED_IP),
 		}
 	}
 
