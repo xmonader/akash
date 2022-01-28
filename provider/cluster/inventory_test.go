@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"testing"
@@ -288,10 +289,13 @@ type inventoryScaffold struct {
 	clusterClient *mocks.Client
 }
 
-func makeInventoryScaffold(t *testing.T, leaseQty uint) *inventoryScaffold{
+func makeInventoryScaffold(t *testing.T, leaseQty uint, inventoryCall bool, nodes... string) *inventoryScaffold{
 	scaffold := &inventoryScaffold{
 		donech: make(chan struct{}),
-		inventoryCalled: make(chan struct{}, 1),
+	}
+
+	if inventoryCall {
+		scaffold.inventoryCalled = make(chan struct{}, 1)
 	}
 
 	for i := uint(0); i != leaseQty; i ++ {
@@ -338,10 +342,13 @@ func makeInventoryScaffold(t *testing.T, leaseQty uint) *inventoryScaffold{
 	cclient := &mocks.Client{}
 
 	// Create an inventory set that has enough resources for the deployment
-	clusterInv := newInventory("nodeA")
+	clusterInv := newInventory(nodes...)
+
 
 	cclient.On("Inventory", mock.Anything).Run(func(args mock.Arguments) {
-		scaffold.inventoryCalled <- struct{}{}
+		if scaffold.inventoryCalled != nil {
+			scaffold.inventoryCalled <- struct{}{}
+		}
 	}).Return(clusterInv, nil)
 
 	scaffold.clusterClient = cclient
@@ -412,7 +419,7 @@ func TestInventory_ReserveIPNoIPOperator(t *testing.T) {
 		InventoryResourceDebugFrequency: 1,
 		InventoryExternalPortQuantity:   1000,
 	}
-	scaffold := makeInventoryScaffold(t, 10)
+	scaffold := makeInventoryScaffold(t, 10, false, "nodeA")
 	defer scaffold.bus.Close()
 
 	myLog := testutil.Logger(t)
@@ -441,13 +448,13 @@ func TestInventory_ReserveIPNoIPOperator(t *testing.T) {
 	<-inv.lc.Done()
 }
 
-func TestInventory_ReserveIPWithIPOperator(t *testing.T) {
+func TestInventory_ReserveIPUnavailableWithIPOperator(t *testing.T) {
 	config := Config{
 		InventoryResourcePollPeriod:     5 * time.Second,
 		InventoryResourceDebugFrequency: 1,
 		InventoryExternalPortQuantity:   1000,
 	}
-	scaffold := makeInventoryScaffold(t, 10)
+	scaffold := makeInventoryScaffold(t, 10, false, "nodeA")
 	defer scaffold.bus.Close()
 
 	myLog := testutil.Logger(t)
@@ -455,13 +462,85 @@ func TestInventory_ReserveIPWithIPOperator(t *testing.T) {
 	subscriber, err := scaffold.bus.Subscribe()
 	require.NoError(t, err)
 
+	mockIP := &mocks.IPOperatorClient{}
+
+	ipQty := testutil.RandRangeInt(1,100)
+	mockIP.On("GetIPAddressUsage", mock.Anything).Return(ipoptypes.IPAddressUsage{
+		Available: uint(ipQty),
+		InUse:     uint(ipQty),
+	}, nil)
+	mockIP.On("Stop")
+
 	inv, err := newInventoryService(
 		config,
 		myLog,
 		scaffold.donech,
 		subscriber,
 		scaffold.clusterClient,
-		nil,                    // TODO - set me
+		mockIP,
+		waiter.NewNullWaiter(), // Do not need to wait in test
+		make([]ctypes.Deployment, 0))
+	require.NoError(t, err)
+	require.NotNil(t, inv)
+
+	group := makeGroupForInventoryTest(false, false, true)
+	reservation, err := inv.reserve(scaffold.leaseIDs[0].OrderID(), group)
+	require.ErrorIs(t, err, errInsufficientIPs)
+	require.Nil(t, reservation)
+
+	// Shut everything down
+	close(scaffold.donech)
+	<-inv.lc.Done()
+}
+
+func TestInventory_ReserveIPAvailableWithIPOperator(t *testing.T) {
+	config := Config{
+		InventoryResourcePollPeriod:     4 * time.Second,
+		InventoryResourceDebugFrequency: 1,
+		InventoryExternalPortQuantity:   1000,
+	}
+	scaffold := makeInventoryScaffold(t, 2, false, "nodeA", "nodeB")
+	defer scaffold.bus.Close()
+
+	myLog := testutil.Logger(t)
+
+	subscriber, err := scaffold.bus.Subscribe()
+	require.NoError(t, err)
+
+	mockIP := &mocks.IPOperatorClient{}
+
+	ipQty := testutil.RandRangeInt(5,10)
+	mockIP.On("GetIPAddressUsage", mock.Anything).Return(ipoptypes.IPAddressUsage{
+		Available: uint(ipQty),
+		InUse:     uint(ipQty - 1), // not all in use
+	}, nil)
+	ipAddrStatusCalled := make(chan struct{}, 1)
+	// First call indicates no data
+	mockIP.On("GetIPAddressStatus", mock.Anything, scaffold.leaseIDs[0].OrderID()).Run(func(args mock.Arguments){
+		ipAddrStatusCalled <- struct{}{}
+	}).Return([]ipoptypes.LeaseIPStatus{}, nil).Once()
+	// Second call indicates the IP is there and can be confirmed
+	mockIP.On("GetIPAddressStatus", mock.Anything, scaffold.leaseIDs[0].OrderID()).Run(func(args mock.Arguments){
+		ipAddrStatusCalled <- struct{}{}
+	}).Return([]ipoptypes.LeaseIPStatus{
+		{
+			Port:         1234,
+			ExternalPort: 1234,
+			ServiceName:  "foobar",
+			IP:           "24.1.2.3",
+			Protocol:     "TCP",
+		},
+	}, nil).Once()
+
+	mockIP.On("Stop")
+
+	inv, err := newInventoryService(
+		config,
+		myLog,
+		scaffold.donech,
+		subscriber,
+		scaffold.clusterClient,
+		mockIP,
 		waiter.NewNullWaiter(), // Do not need to wait in test
 		make([]ctypes.Deployment, 0))
 	require.NoError(t, err)
@@ -471,27 +550,48 @@ func TestInventory_ReserveIPWithIPOperator(t *testing.T) {
 	reservation, err := inv.reserve(scaffold.leaseIDs[0].OrderID(), group)
 	require.NoError(t, err)
 	require.NotNil(t, reservation)
+	require.False(t, reservation.Allocated())
+
+	// next reservation fails
+	reservation, err = inv.reserve(scaffold.leaseIDs[1].OrderID(), group)
+	require.ErrorIs(t, err, errInsufficientIPs)
+	require.Nil(t, reservation)
+
+	err = scaffold.bus.Publish(event.ClusterDeployment{
+		LeaseID: scaffold.leaseIDs[0],
+		Group:   &group,
+		Status:  event.ClusterDeploymentDeployed,
+	})
+	require.NoError(t, err)
+
+	testutil.ChannelWaitForValueUpTo(t, ipAddrStatusCalled, 30 * time.Second)
+	testutil.ChannelWaitForValueUpTo(t, ipAddrStatusCalled, 30 * time.Second)
+
+	// with the 1st reservation confirmed, this one passes now
+	reservation, err = inv.reserve(scaffold.leaseIDs[1].OrderID(), group)
+	require.NoError(t, err)
+	require.NotNil(t, reservation)
+
 
 	// Shut everything down
 	close(scaffold.donech)
 	<-inv.lc.Done()
+
+	mockIP.AssertNumberOfCalls(t, "GetIPAddressStatus", 2)
 }
 
+
 func TestInventory_OverReservations(t *testing.T) {
-	lid0 := testutil.LeaseID(t)
-	lid1 := testutil.LeaseID(t)
-
-	config := Config{
-		InventoryResourcePollPeriod:     5 * time.Second,
-		InventoryResourceDebugFrequency: 1,
-		InventoryExternalPortQuantity:   1000,
-	}
-
+	scaffold := makeInventoryScaffold(t, 10, true, "nodeA")
+	defer scaffold.bus.Close()
+	lid0 := scaffold.leaseIDs[0]
+	lid1 := scaffold.leaseIDs[1]
 	myLog := testutil.Logger(t)
-	donech := make(chan struct{})
-	bus := pubsub.NewBus()
-	subscriber, err := bus.Subscribe()
+
+	subscriber, err := scaffold.bus.Subscribe()
 	require.NoError(t, err)
+	defer subscriber.Close()
+
 
 	groupServices := make([]manifest.Service, 1)
 
@@ -532,23 +632,18 @@ func TestInventory_OverReservations(t *testing.T) {
 		Services: groupServices,
 	}
 
-	clusterClient := &mocks.Client{}
-
-	inventoryCalled := make(chan int, 1)
-
-	// Create an inventory set that has enough resources for the deployment
-	clusterInv := newInventory("nodeA")
-
-	clusterClient.On("Inventory", mock.Anything).Run(func(args mock.Arguments) {
-		inventoryCalled <- 0 // Value does not matter
-	}).Return(clusterInv, nil)
+	config := Config{
+		InventoryResourcePollPeriod:     5 * time.Second,
+		InventoryResourceDebugFrequency: 1,
+		InventoryExternalPortQuantity:   1000,
+	}
 
 	inv, err := newInventoryService(
 		config,
 		myLog,
-		donech,
+		scaffold.donech,
 		subscriber,
-		clusterClient,
+		scaffold.clusterClient,
 		nil, // No IP operator client
 		waiter.NewNullWaiter(), // Do not need to wait in test
 		make([]ctypes.Deployment, 0))
@@ -556,7 +651,7 @@ func TestInventory_OverReservations(t *testing.T) {
 	require.NotNil(t, inv)
 
 	// Wait for first call to inventory
-	<-inventoryCalled
+	testutil.ChannelWaitForValueUpTo(t, scaffold.inventoryCalled, 30 * time.Second)
 
 	// Get the reservation
 	reservation, err := inv.reserve(lid0.OrderID(), group)
@@ -569,7 +664,7 @@ func TestInventory_OverReservations(t *testing.T) {
 	require.ErrorIs(t, err, ctypes.ErrInsufficientCapacity)
 
 	// Send the event immediately to indicate it was deployed
-	err = bus.Publish(event.ClusterDeployment{
+	err = scaffold.bus.Publish(event.ClusterDeployment{
 		LeaseID: lid0,
 		Group: &manifest.Group{
 			Name:     "nameForGroup",
@@ -587,10 +682,10 @@ func TestInventory_OverReservations(t *testing.T) {
 	require.ErrorIs(t, err, ctypes.ErrInsufficientCapacity)
 
 	// Wait for second call to inventory
-	<-inventoryCalled
+	testutil.ChannelWaitForValueUpTo(t, scaffold.inventoryCalled, 30 * time.Second)
 
 	// // Shut everything down
-	close(donech)
+	close(scaffold.donech)
 	<-inv.lc.Done()
 
 	// No ports used yet

@@ -347,8 +347,6 @@ type inventoryServiceState struct {
 	inventory ctypes.Inventory
 	reservations []*reservation
 	ipAddrUsage ipoptypes.IPAddressUsage
-
-
 }
 
 func countPendingIPs(state *inventoryServiceState) uint {
@@ -376,15 +374,14 @@ func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequ
 			return
 		}
 		numIPUnused := state.ipAddrUsage.Available - state.ipAddrUsage.InUse
-		numIPUnused -= countPendingIPs(state)
-		if reservation.endpointQuantity > numIPUnused {
+		pending := countPendingIPs(state)
+		if reservation.endpointQuantity > (numIPUnused - pending) {
 			is.log.Info("insufficient number of IP addresses available", "order", req.order)
 			req.ch <- inventoryResponse{err: fmt.Errorf("%w: unable to reserve %d", errInsufficientIPs, reservation.endpointQuantity)}
 			return
 		}
 
-		remainingAvailable := numIPUnused - reservation.endpointQuantity
-		is.log.Info("reservation used leased IPs", "used", reservation.endpointQuantity, "remaining", remainingAvailable)
+		is.log.Info("reservation used leased IPs", "used", reservation.endpointQuantity, "available", state.ipAddrUsage.Available, "in-use", state.ipAddrUsage.InUse, "pending", pending)
 	} else {
 		reservation.ipsConfirmed = true // No IPs, just mark it as confirmed implicitly
 	}
@@ -491,7 +488,6 @@ loop:
 
 		case req := <-is.lookupch:
 			// lookup registration
-
 			for _, res := range state.reservations {
 				if !res.OrderID().Equals(req.order) {
 					continue
@@ -545,8 +541,6 @@ loop:
 			t.Stop()
 			// Run an inventory check
 			updateInventory()
-
-
 
 		case res := <-runch:
 			// inventory check returned
