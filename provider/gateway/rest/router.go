@@ -575,12 +575,12 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 
 		hasLeasedIPs := false
 		if ipopclient != nil {
-			manifestGroupSearchLoop:
+			ipManifestGroupSearchLoop:
 				for _, service := range manifestGroup.Services {
 					for _, expose := range service.Expose {
 						if 0 != len(expose.IP) {
 							hasLeasedIPs = true
-							break manifestGroupSearchLoop
+							break ipManifestGroupSearchLoop
 						}
 					}
 				}
@@ -611,10 +611,18 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 
 				result.IPs[ipLease.ServiceName] = entries
 			}
-
 		}
 
-		hasForwardedPorts := true // TODO - check manifest for this
+		hasForwardedPorts := false
+		portManifestGroupSearchLoop:
+		for _, service := range manifestGroup.Services {
+			for _, expose := range service.Expose {
+				if expose.Global && expose.ExternalPort != 80 {
+					hasForwardedPorts = true
+					break portManifestGroupSearchLoop
+				}
+			}
+		}
 		if hasForwardedPorts {
 			result.ForwardedPorts, err = cclient.ForwardedPortStatus(ctx, leaseID)
 			if err != nil {
@@ -622,7 +630,6 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 				return
 			}
 		}
-
 
 		result.Services, err = cclient.LeaseStatus(ctx, leaseID)
 		if err != nil {
