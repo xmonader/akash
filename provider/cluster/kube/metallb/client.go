@@ -71,8 +71,6 @@ const (
 
 	poolName = "default"
 
-	serviceHostName = "controller.metallb-system.svc.cluster.local"
-
 	metricNameAddrInUse = "metallb_allocator_addresses_in_use_total"
 	metricNameAddrTotal = "metallb_allocator_addresses_total"
 )

@@ -1,7 +1,10 @@
 package operator_common
 
 import (
+	"bytes"
+	"encoding/json"
 	"github.com/gorilla/mux"
+	"github.com/ovrclk/akash/provider/gateway/utils"
 	"io"
 	"net/http"
 )
@@ -24,7 +27,7 @@ type operatorHttp struct {
 	results map[string]preparedEntry
 }
 
-func NewOperatorHttp() OperatorHttp {
+func NewOperatorHttp() (OperatorHttp, error) {
 	retval := &operatorHttp{
 		router:  mux.NewRouter(),
 		results: make(map[string]preparedEntry),
@@ -35,13 +38,25 @@ func NewOperatorHttp() OperatorHttp {
 		_, _ = io.WriteString(rw, "OK")
 	})
 
+	akashVersion :=	utils.NewAkashVersionInfo()
+	buf := &bytes.Buffer{}
+	enc := json.NewEncoder(buf)
+	err := enc.Encode(akashVersion)
+
+	if err != nil {
+		return nil, err
+	}
+
+	akashVersionJson := buf.Bytes()
+	buf = nil // remove from scope
+	enc = nil // remove from scope
+
 	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
-		// TODO - write the version back in the standardized way from Arijit's Pr
-		io.WriteString(rw, "0.0.0")
+		_, _ = io.Copy(rw, bytes.NewReader(akashVersionJson))
 	}).Methods("GET")
 
-	return retval
+	return retval, nil
 }
 
 func (opHttp *operatorHttp) GetRouter() *mux.Router {

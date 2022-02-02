@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/gateway/utils"
 	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
 	"io"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/cosmos/cosmos-sdk/version"
 
 	"github.com/golang-jwt/jwt/v4"
 
@@ -419,17 +418,11 @@ func createAddressHandler(log log.Logger, providerAddr sdk.Address) http.Handler
 }
 
 type versionInfo struct {
-	Akash *akashVersionInfo `json:"akash"`
+	Akash utils.AkashVersionInfo `json:"akash"`
 	Kube  *kubeVersion.Info `json:"kube"`
 }
 
-type akashVersionInfo struct {
-	Version          string `json:"version"`
-	GitCommit        string `json:"commit"`
-	BuildTags        string `json:"buildTags"`
-	GoVersion        string `json:"go"`
-	CosmosSdkVersion string `json:"cosmosSdkVersion"`
-}
+
 
 func createVersionHandler(log log.Logger, pclient provider.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -438,15 +431,9 @@ func createVersionHandler(log log.Logger, pclient provider.Client) http.HandlerF
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		verInfo := version.NewInfo()
+
 		writeJSON(log, w, versionInfo{
-			Akash: &akashVersionInfo{
-				Version:          verInfo.Version,
-				GitCommit:        verInfo.GitCommit,
-				BuildTags:        verInfo.BuildTags,
-				GoVersion:        verInfo.GoVersion,
-				CosmosSdkVersion: verInfo.CosmosSdkVersion,
-			},
+			Akash: utils.NewAkashVersionInfo(),
 			Kube: kube,
 		})
 	}

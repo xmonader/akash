@@ -550,12 +550,16 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	return providerAddr, nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) *ipOperator {
+func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator, error) {
+	opHttp, err := operator_common.NewOperatorHttp()
+	if err != nil {
+		return nil, err
+	}
 	retval := &ipOperator{
 		state:         make(map[string]managedIp),
 		client:        client,
 		log:           logger,
-		server:        operator_common.NewOperatorHttp(),
+		server:        opHttp,
 		leasesIgnored: operator_common.NewIgnoreList(ilc),
 		mllbc:         mllbc,
 		dataLock:      &sync.Mutex{},
@@ -584,11 +588,11 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common
 		_, _ = io.WriteString(rw, "OK")
 	})
 
-	// TODO - add auth based off TokenReview via k8s interface to below methods
+	// TODO - add auth based off TokenReview via k8s interface to below methods OR just cache these so they can't abuse kube
 	retval.server.GetRouter().HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request) {
 		handleIPLeaseStatusGet(retval, rw, req)
 	}).Methods(http.MethodGet)
-	return retval
+	return retval, nil
 }
 
 func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
@@ -684,10 +688,12 @@ func doIPOperator(cmd *cobra.Command) error {
 	}
 
 	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP")
-
 	logger.Info("clients", "kube", client, "metallb", mllbc)
 
-	op := newIpOperator(logger, client, operator_common.IgnoreListConfigFromViper(), mllbc, providerSda)
+	op, err := newIpOperator(logger, client, operator_common.IgnoreListConfigFromViper(), mllbc, providerSda)
+	if err != nil {
+		return err
+	}
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
 

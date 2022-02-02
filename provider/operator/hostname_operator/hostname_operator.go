@@ -425,20 +425,24 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 	return err
 }
 
-func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operator_common.IgnoreListConfig) *hostnameOperator {
+func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operator_common.IgnoreListConfig) (*hostnameOperator, error) {
+	opHttp, err := operator_common.NewOperatorHttp()
+	if err != nil {
+		return nil, err
+	}
 	op := &hostnameOperator{
 		hostnames:     make(map[string]managedHostname),
 		client:        client,
 		log:           logger,
 		cfg:           config,
-		server:        operator_common.NewOperatorHttp(),
+		server:        opHttp,
 		leasesIgnored: operator_common.NewIgnoreList(ilc),
 	}
 
 	op.flagIgnoreListData = op.server.AddPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
 	op.flagHostnamesData = op.server.AddPreparedEndpoint("/managed-hostnames", op.prepareHostnamesData)
 
-	return op
+	return op, nil
 }
 
 func doHostnameOperator(cmd *cobra.Command) error {
@@ -461,7 +465,10 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op := newHostnameOperator(logger, client, config, operator_common.IgnoreListConfigFromViper())
+	op, err := newHostnameOperator(logger, client, config, operator_common.IgnoreListConfigFromViper())
+	if err != nil {
+		return err
+	}
 
 	router := op.webRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
