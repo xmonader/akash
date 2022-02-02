@@ -9,12 +9,18 @@ import (
 	"fmt"
 )
 
+type IgnoreListReadOnly interface {
+	IsFlagged(id mtypes.LeaseID) bool
+	Size() int
+}
+
 type IgnoreList interface {
+	IgnoreListReadOnly
 	Prepare(pd PreparedResult) error
-	//Size() int
+
 	//Each(f func(k mtypes.LeaseID, failure error, failedAt time.Time, count uint, extra ...string) error ) error
 	AddError(id mtypes.LeaseID, err error, extra ...string)
-	IsFlagged(id mtypes.LeaseID) bool
+
 	Prune() bool
 }
 
@@ -80,7 +86,7 @@ func (il *ignoreList) Prepare(pd  PreparedResult) error {
 
 }
 
-func (il *ignoreList) size() int {
+func (il *ignoreList) Size() int {
 	return len(il.entries)
 }
 
@@ -126,7 +132,7 @@ func (il *ignoreList) IsFlagged(k mtypes.LeaseID) bool {
 		return false
 	}
 
-	return entry.failureCount >= il.cfg.EntryLimit
+	return entry.failureCount >= il.cfg.FailureLimit
 }
 
 func (il *ignoreList) Prune() bool {
