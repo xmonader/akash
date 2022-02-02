@@ -472,7 +472,7 @@ func (c *client) ForwardedPortStatus(ctx context.Context, leaseID mtypes.LeaseID
 		}
 	}
 
-	return nil, nil
+	return forwardedPorts, nil
 }
 
 // todo: limit number of results and do pagination / streaming
