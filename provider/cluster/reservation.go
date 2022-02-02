@@ -11,17 +11,17 @@ import (
 
 func newReservation(order mtypes.OrderID, resources atypes.ResourceGroup) *reservation {
 	return &reservation{
-		order: order,
-		resources: resources,
+		order:            order,
+		resources:        resources,
 		endpointQuantity: util.GetEndpointQuantityOfResourceGroup(resources, atypes.Endpoint_LEASED_IP)}
 }
 
 type reservation struct {
-	order     mtypes.OrderID
-	resources atypes.ResourceGroup
-	allocated bool
+	order            mtypes.OrderID
+	resources        atypes.ResourceGroup
+	allocated        bool
 	endpointQuantity uint
-	ipsConfirmed bool
+	ipsConfirmed     bool
 }
 
 var _ ctypes.Reservation = (*reservation)(nil)

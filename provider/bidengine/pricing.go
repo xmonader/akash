@@ -30,7 +30,7 @@ const denom = "uakt"
 var (
 	errAllScalesZero               = errors.New("at least one bid price must be a non-zero number")
 	errNoPriceScaleForStorageClass = errors.New("no pricing configured for storage class")
-	errScaleNegative = errors.New("scale price cannot be negative")
+	errScaleNegative               = errors.New("scale price cannot be negative")
 )
 
 type Storage map[string]decimal.Decimal
@@ -76,7 +76,7 @@ type scalePricing struct {
 	memoryScale   decimal.Decimal
 	storageScale  Storage
 	endpointScale decimal.Decimal
-	ipScale decimal.Decimal
+	ipScale       decimal.Decimal
 }
 
 func MakeScalePricing(
@@ -86,7 +86,7 @@ func MakeScalePricing(
 	endpointScale decimal.Decimal,
 	ipScale decimal.Decimal) (BidPricingStrategy, error) {
 
-	if cpuScale.IsZero() && memoryScale.IsZero() && storageScale.IsAnyZero() && endpointScale.IsZero() && ipScale.IsZero(){
+	if cpuScale.IsZero() && memoryScale.IsZero() && storageScale.IsAnyZero() && endpointScale.IsZero() && ipScale.IsZero() {
 		return nil, errAllScalesZero
 	}
 
@@ -100,7 +100,7 @@ func MakeScalePricing(
 		memoryScale:   memoryScale,
 		storageScale:  storageScale,
 		endpointScale: endpointScale,
-		ipScale: ipScale,
+		ipScale:       ipScale,
 	}
 
 	return result, nil
@@ -357,7 +357,7 @@ type dataForScriptElement struct {
 	Storage          []storageElement `json:"storage"`
 	Count            uint32           `json:"count"`
 	EndpointQuantity int              `json:"endpoint_quantity"`
-	IPLeaseQuantity uint `json:"ip_lease_quantity"`
+	IPLeaseQuantity  uint             `json:"ip_lease_quantity"`
 }
 
 func (ssp shellScriptPricing) CalculatePrice(ctx context.Context, owner string, gspec *dtypes.GroupSpec) (sdk.DecCoin, error) {
@@ -395,7 +395,7 @@ func (ssp shellScriptPricing) CalculatePrice(ctx context.Context, owner string, 
 			Storage:          storageQuantity,
 			Count:            groupCount,
 			EndpointQuantity: endpointQuantity,
-			IPLeaseQuantity: util.GetEndpointQuantityOfResourceUnits(group.Resources, atypes.Endpoint_LEASED_IP),
+			IPLeaseQuantity:  util.GetEndpointQuantityOfResourceUnits(group.Resources, atypes.Endpoint_LEASED_IP),
 		}
 	}
 

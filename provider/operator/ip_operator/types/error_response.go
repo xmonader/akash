@@ -10,12 +10,12 @@ var (
 
 	ErrNoSuchReservation = ipOperatorError{
 		message: "no such reservation with that lease ID",
-		code: 1000,
+		code:    1000,
 	}
 
-	ErrReservationQuantityCannotBeZero = ipOperatorError {
+	ErrReservationQuantityCannotBeZero = ipOperatorError{
 		message: "reservation request cannot have a quantity of zero",
-		code: 1001,
+		code:    1001,
 	}
 
 	errNoRegisteredError = errors.New("no registered error")
@@ -28,7 +28,7 @@ type IPOperatorError interface {
 
 type ipOperatorError struct {
 	message string
-	code int
+	code    int
 }
 
 func (ipoe ipOperatorError) Error() string {
@@ -45,7 +45,7 @@ func (ipoe ipOperatorError) GetCode() int {
 
 type IPOperatorErrorResponse struct {
 	Error string
-	Code int
+	Code  int
 }
 
 var registry map[int]error

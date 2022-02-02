@@ -80,7 +80,7 @@ func Test_router_Validate(t *testing.T) {
 		addr := testutil.AccAddress(t)
 		mocks := createMocks()
 		mocks.pclient.On("Validate", mock.Anything, mock.Anything).Return(provider.ValidateGroupSpecResult{}, errors.New("oops"))
-		withServer(t, addr, mocks.pclient, mocks.qclient, nil, operator_clients.NullIPOperatorClient(),  func(host string) {
+		withServer(t, addr, mocks.pclient, mocks.qclient, nil, operator_clients.NullIPOperatorClient(), func(host string) {
 			client, err := NewClient(mocks.qclient, addr, nil)
 			assert.NoError(t, err)
 			_, err = client.Validate(context.Background(), dtypes.GroupSpec{})
@@ -101,7 +101,7 @@ func Test_router_Manifest(t *testing.T) {
 		mocks := createMocks()
 
 		mocks.pmclient.On("Submit", mock.Anything, did, akashmanifest.Manifest(nil)).Return(nil)
-		withServer(t, paddr, mocks.pclient, mocks.qclient, nil, operator_clients.NullIPOperatorClient(),  func(host string) {
+		withServer(t, paddr, mocks.pclient, mocks.qclient, nil, operator_clients.NullIPOperatorClient(), func(host string) {
 			cert := testutil.Certificate(t, caddr, testutil.CertificateOptionMocks(mocks.qclient))
 			client, err := NewClient(mocks.qclient, paddr, cert.Cert)
 			assert.NoError(t, err)
@@ -150,29 +150,29 @@ func mockManifestGroups(m integrationMocks, leaseID mtypes.LeaseID) {
 	}
 	m.pcclient.On("LeaseStatus", mock.Anything, leaseID).Return(status, nil)
 	m.pcclient.On("GetManifestGroup", mock.Anything, leaseID).Return(true, v2beta1.ManifestGroup{
-		Name:     testGroupName,
+		Name: testGroupName,
 		Services: []v2beta1.ManifestService{{
-			Name:      testServiceName,
-			Image:     testImageName,
-			Args:      nil,
-			Env:       nil,
+			Name:  testServiceName,
+			Image: testImageName,
+			Args:  nil,
+			Env:   nil,
 			Resources: v2beta1.ResourceUnits{
-				CPU:     1000,
-				Memory:  "3333",
+				CPU:    1000,
+				Memory: "3333",
 				Storage: []v2beta1.ManifestServiceStorage{{
 					Name: "",
 					Size: "4444",
 				}},
 			},
-			Count:     1,
-			Expose:    []v2beta1.ManifestServiceExpose{{
-				Port:                   8080,
-				ExternalPort:           80,
-				Proto:                  "TCP",
-				Service:                testServiceName,
-				Global:                 true,
-				Hosts:                  []string{"hello.localhost"},
-				HTTPOptions:            v2beta1.ManifestServiceExposeHTTPOptions{
+			Count: 1,
+			Expose: []v2beta1.ManifestServiceExpose{{
+				Port:         8080,
+				ExternalPort: 80,
+				Proto:        "TCP",
+				Service:      testServiceName,
+				Global:       true,
+				Hosts:        []string{"hello.localhost"},
+				HTTPOptions: v2beta1.ManifestServiceExposeHTTPOptions{
 					MaxBodySize: 1,
 					ReadTimeout: 2,
 					SendTimeout: 3,
@@ -183,7 +183,7 @@ func mockManifestGroups(m integrationMocks, leaseID mtypes.LeaseID) {
 				IP:                     "",
 				EndpointSequenceNumber: 1,
 			}},
-			Params:    nil,
+			Params: nil,
 		}},
 	}, nil)
 }
@@ -204,8 +204,8 @@ func Test_router_LeaseStatus(t *testing.T) {
 			assert.NoError(t, err)
 			status, err := client.LeaseStatus(context.Background(), id)
 			expected := LeaseStatus{
-				Services:       map[string]*ctypes.ServiceStatus{
-					testServiceName: &ctypes.ServiceStatus{
+				Services: map[string]*ctypes.ServiceStatus{
+					testServiceName: {
 						Name:               testServiceName,
 						Available:          8,
 						Total:              8,
@@ -236,7 +236,7 @@ func Test_router_LeaseStatus(t *testing.T) {
 		mocks.pcclient.On("LeaseStatus", mock.Anything, id).Return(nil, errors.New("ded"))
 		mockManifestGroups(mocks, id)
 
-		withServer(t, paddr, mocks.pclient, mocks.qclient, nil, operator_clients.NullIPOperatorClient(),  func(host string) {
+		withServer(t, paddr, mocks.pclient, mocks.qclient, nil, operator_clients.NullIPOperatorClient(), func(host string) {
 			cert := testutil.Certificate(t, caddr, testutil.CertificateOptionMocks(mocks.qclient))
 			client, err := NewClient(mocks.qclient, paddr, cert.Cert)
 			assert.NoError(t, err)
@@ -331,7 +331,7 @@ func createMocks() integrationMocks {
 	}
 }
 
-func withServer(t testing.TB, addr sdk.Address, pclient provider.Client, qclient *qmock.QueryClient, certs []tls.Certificate, ipoc operator_clients.IPOperatorClient,  fn func(string)) {
+func withServer(t testing.TB, addr sdk.Address, pclient provider.Client, qclient *qmock.QueryClient, certs []tls.Certificate, ipoc operator_clients.IPOperatorClient, fn func(string)) {
 	t.Helper()
 	router := newRouter(testutil.Logger(t), addr, pclient, ipoc, map[interface{}]interface{}{})
 

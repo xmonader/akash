@@ -34,9 +34,9 @@ var (
 	// errReservationNotFound is the new error with message "not found"
 	errReservationNotFound      = errors.New("reservation not found")
 	errInventoryNotAvailableYet = errors.New("inventory status not available yet")
-	errInventoryReservation = errors.New("inventory error")
-	errNoLeasedIPsAvailable = fmt.Errorf("%w: no leased IPs available", errInventoryReservation)
-	errInsufficientIPs = fmt.Errorf("%w: insufficient number of IPs", errInventoryReservation)
+	errInventoryReservation     = errors.New("inventory error")
+	errNoLeasedIPsAvailable     = fmt.Errorf("%w: no leased IPs available", errInventoryReservation)
+	errInsufficientIPs          = fmt.Errorf("%w: insufficient number of IPs", errInventoryReservation)
 )
 
 var (
@@ -113,8 +113,8 @@ func newInventoryService(
 		log:                    log.With("cmp", "inventory-service"),
 		lc:                     lifecycle.New(),
 		availableExternalPorts: config.InventoryExternalPortQuantity,
-		ipOperator: ipOperatorClient,
-		waiter: waiter,
+		ipOperator:             ipOperatorClient,
+		waiter:                 waiter,
 	}
 
 	reservations := make([]*reservation, 0, len(deployments))
@@ -344,9 +344,9 @@ func updateReservationMetrics(reservations []*reservation) {
 }
 
 type inventoryServiceState struct {
-	inventory ctypes.Inventory
+	inventory    ctypes.Inventory
 	reservations []*reservation
-	ipAddrUsage ipoptypes.IPAddressUsage
+	ipAddrUsage  ipoptypes.IPAddressUsage
 }
 
 func countPendingIPs(state *inventoryServiceState) uint {
@@ -360,7 +360,7 @@ func countPendingIPs(state *inventoryServiceState) uint {
 	return pending
 }
 
-func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequest, state *inventoryServiceState){
+func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequest, state *inventoryServiceState) {
 	// convert the resources to the committed amount
 	resourcesToCommit := is.resourcesToCommit(req.resources)
 	// create new registration if capacity available
@@ -625,7 +625,7 @@ loop:
 }
 
 type confirmationItem struct {
-	orderID mtypes.OrderID
+	orderID          mtypes.OrderID
 	expectedQuantity uint
 }
 

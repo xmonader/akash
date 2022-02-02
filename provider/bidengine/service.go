@@ -82,7 +82,7 @@ func NewService(ctx context.Context, session session.Session, cluster cluster.Cl
 		lc:       lifecycle.New(),
 		cfg:      cfg,
 		pass:     providerAttrService,
-		waiter: waiter,
+		waiter:   waiter,
 	}
 
 	go s.lc.WatchContext(ctx)

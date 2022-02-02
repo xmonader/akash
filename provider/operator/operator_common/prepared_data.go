@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type PreparedResult interface{
+type PreparedResult interface {
 	Flag()
 	Set([]byte)
 }

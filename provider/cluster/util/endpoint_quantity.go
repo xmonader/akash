@@ -11,7 +11,7 @@ func GetEndpointQuantityOfResourceGroup(resources atypes.ResourceGroup, kind aty
 	return uint(len(endpoints))
 }
 
-func accumEndpointsOfResources(r atypes.ResourceUnits, kind atypes.Endpoint_Kind, accum map[uint32]struct{}){
+func accumEndpointsOfResources(r atypes.ResourceUnits, kind atypes.Endpoint_Kind, accum map[uint32]struct{}) {
 	for _, endpoint := range r.Endpoints {
 		if endpoint.Kind == kind {
 			accum[endpoint.SequenceNumber] = struct{}{}

@@ -2,13 +2,13 @@ package client_common
 
 import (
 	"fmt"
+	"github.com/tendermint/tendermint/libs/log"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/homedir"
 	"os"
 	"path"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 func OpenKubeConfig(cfgPath string, log log.Logger) (*rest.Config, error) {

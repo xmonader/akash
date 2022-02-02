@@ -89,7 +89,6 @@ func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ipopcl
 		})
 	})
 
-
 	// GET /version
 	// provider version endpoint does not require authentication
 	router.HandleFunc("/version",
@@ -460,11 +459,11 @@ func createStatusHandler(log log.Logger, sclient provider.StatusClient, provider
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		data := struct{
+		data := struct {
 			provider.Status
 			Address string `json:"address"`
 		}{
-			Status: *status,
+			Status:  *status,
 			Address: providerAddr.String(),
 		}
 		writeJSON(log, w, data)
@@ -575,15 +574,15 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 
 		hasLeasedIPs := false
 		if ipopclient != nil {
-			ipManifestGroupSearchLoop:
-				for _, service := range manifestGroup.Services {
-					for _, expose := range service.Expose {
-						if 0 != len(expose.IP) {
-							hasLeasedIPs = true
-							break ipManifestGroupSearchLoop
-						}
+		ipManifestGroupSearchLoop:
+			for _, service := range manifestGroup.Services {
+				for _, expose := range service.Expose {
+					if 0 != len(expose.IP) {
+						hasLeasedIPs = true
+						break ipManifestGroupSearchLoop
 					}
 				}
+			}
 		}
 
 		var ipLeaseStatus []ipoptypes.LeaseIPStatus
@@ -614,7 +613,7 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 		}
 
 		hasForwardedPorts := false
-		portManifestGroupSearchLoop:
+	portManifestGroupSearchLoop:
 		for _, service := range manifestGroup.Services {
 			for _, expose := range service.Expose {
 				if expose.Global && expose.ExternalPort != 80 {
@@ -648,8 +647,6 @@ func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient o
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-
 
 		writeJSON(log, w, result)
 	}

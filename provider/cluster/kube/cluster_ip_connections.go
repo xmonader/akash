@@ -7,8 +7,8 @@ import (
 	manifest "github.com/ovrclk/akash/manifest/v2beta1"
 	akashtypes "github.com/ovrclk/akash/pkg/apis/akash.network/v2beta1"
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
-	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	"github.com/ovrclk/akash/provider/cluster/types/v1beta2"
+	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,16 +52,16 @@ func (c *client) DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceName 
 
 	obj := akashtypes.ProviderLeasedIP{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            resourceName,
-			Labels:          labels,
+			Name:   resourceName,
+			Labels: labels,
 		},
 		Spec: akashtypes.ProviderLeasedIPSpec{
 			LeaseID:      akashtypes.LeaseIDFromAkash(lID),
 			ServiceName:  serviceName,
 			ExternalPort: externalPort,
 			SharingKey:   sharingKey,
-			Protocol: proto.ToString(),
-			Port: port,
+			Protocol:     proto.ToString(),
+			Port:         port,
 		},
 		Status: akashtypes.ProviderLeasedIPStatus{},
 	}
@@ -159,14 +159,14 @@ func (c *client) ObserveIPState(ctx context.Context) (<-chan v1beta2.IPResourceE
 
 		ev := ipResourceEvent{
 			eventType:    ctypes.ProviderResourceAdd,
-			lID: leaseID,
+			lID:          leaseID,
 			serviceName:  v.Spec.ServiceName,
-			port: v.Spec.Port,
+			port:         v.Spec.Port,
 			externalPort: v.Spec.ExternalPort,
-			ownerAddr: ownerAddr,
+			ownerAddr:    ownerAddr,
 			providerAddr: providerAddr,
-			sharingKey: v.Spec.SharingKey,
-			protocol: proto,
+			sharingKey:   v.Spec.SharingKey,
+			protocol:     proto,
 		}
 		evData[i] = ev
 	}
@@ -200,9 +200,9 @@ func (c *client) ObserveIPState(ctx context.Context) (<-chan v1beta2.IPResourceE
 					c.log.Error("invalid provider address in provider host", "addr", plip.Spec.LeaseID.Provider, "err", err)
 					continue // Ignore event
 				}
-			    leaseID, err := plip.Spec.LeaseID.ToAkash()
-			    if err != nil {
-			    	c.log.Error("invalid lease ID", "err", err)
+				leaseID, err := plip.Spec.LeaseID.ToAkash()
+				if err != nil {
+					c.log.Error("invalid lease ID", "err", err)
 					continue // Ignore event
 				}
 				proto, err := manifest.ParseServiceProtocol(plip.Spec.Protocol)
@@ -214,7 +214,7 @@ func (c *client) ObserveIPState(ctx context.Context) (<-chan v1beta2.IPResourceE
 				ev := ipResourceEvent{
 					lID:          leaseID,
 					serviceName:  plip.Spec.ServiceName,
-					port: plip.Spec.Port,
+					port:         plip.Spec.Port,
 					externalPort: plip.Spec.ExternalPort,
 					sharingKey:   plip.Spec.SharingKey,
 					providerAddr: providerAddr,
@@ -250,21 +250,20 @@ func (c *client) ObserveIPState(ctx context.Context) (<-chan v1beta2.IPResourceE
 }
 
 type ipResourceEvent struct {
-	lID mtypes.LeaseID
-	eventType ctypes.ProviderResourceEvent
-	serviceName string
-	port uint32
+	lID          mtypes.LeaseID
+	eventType    ctypes.ProviderResourceEvent
+	serviceName  string
+	port         uint32
 	externalPort uint32
-	sharingKey string
+	sharingKey   string
 	providerAddr sdktypes.Address
-	ownerAddr sdktypes.Address
-	protocol manifest.ServiceProtocol
+	ownerAddr    sdktypes.Address
+	protocol     manifest.ServiceProtocol
 }
 
 func (ev ipResourceEvent) GetLeaseID() mtypes.LeaseID {
 	return ev.lID
 }
-
 
 func (ev ipResourceEvent) GetEventType() ctypes.ProviderResourceEvent {
 	return ev.eventType

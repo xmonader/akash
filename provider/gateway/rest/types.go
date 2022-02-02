@@ -5,15 +5,14 @@ import (
 )
 
 type LeasedIPStatus struct {
-	Port uint32
+	Port         uint32
 	ExternalPort uint32
-	Protocol string
-	IP string
+	Protocol     string
+	IP           string
 }
 
-type LeaseStatus struct{
+type LeaseStatus struct {
 	Services       map[string]*cltypes.ServiceStatus        `json:"services"`
 	ForwardedPorts map[string][]cltypes.ForwardedPortStatus `json:"forwarded_ports"` // Container services that are externally accessible
-	IPs map[string][]LeasedIPStatus `json:"ips"`
+	IPs            map[string][]LeasedIPStatus              `json:"ips"`
 }
-

@@ -124,15 +124,15 @@ func makeHostnameOperatorScaffold(t *testing.T) *hostnameOperatorScaffold {
 	l := testutil.Logger(t)
 
 	op := newHostnameOperator(l, client, hostnameOperatorConfig{
-		pruneInterval:        time.Hour,
-		webRefreshInterval:   time.Second,
-		retryDelay:           time.Second,
+		pruneInterval:      time.Hour,
+		webRefreshInterval: time.Second,
+		retryDelay:         time.Second,
 	},
-	operator_common.IgnoreListConfig{
-		FailureLimit: 3,
-		EntryLimit:   19,
-		AgeLimit:     time.Hour,
-	})
+		operator_common.IgnoreListConfig{
+			FailureLimit: 3,
+			EntryLimit:   19,
+			AgeLimit:     time.Hour,
+		})
 
 	scaffold.op = op
 	return scaffold
@@ -227,7 +227,7 @@ func TestHostnameOperatorApplyDeleteFails(t *testing.T) {
 }
 
 type ignoreListTestEntry struct {
-	FailureCount  uint     `json:"failure-count"`
+	FailureCount uint `json:"failure-count"`
 }
 
 func grabIgnoredList(t *testing.T, handler http.HandlerFunc) map[string]ignoreListTestEntry {
@@ -237,7 +237,7 @@ func grabIgnoredList(t *testing.T, handler http.HandlerFunc) map[string]ignoreLi
 
 	handler(rr, req)
 
-	switch rr.Code{
+	switch rr.Code {
 	case http.StatusNoContent:
 		return nil
 	case http.StatusOK:
@@ -261,7 +261,7 @@ func grabManagedHostnames(t *testing.T, handler http.HandlerFunc) map[string]int
 
 	handler(rr, req)
 
-	switch rr.Code{
+	switch rr.Code {
 	case http.StatusNoContent:
 		return nil
 	case http.StatusOK:
@@ -436,7 +436,6 @@ func TestHostnameOperatorApplyAdd(t *testing.T) {
 
 	ignored = grabIgnoredList(t, s.op.server.GetRouter().ServeHTTP)
 	require.Empty(t, ignored)
-
 
 	managed = grabManagedHostnames(t, s.op.server.GetRouter().ServeHTTP)
 

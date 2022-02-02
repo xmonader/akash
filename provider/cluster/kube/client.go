@@ -31,9 +31,9 @@ import (
 	dtypes "github.com/ovrclk/akash/x/deployment/types/v1beta2"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 
+	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
-	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
 
 	kubeclienterrors "github.com/ovrclk/akash/provider/cluster/kube/errors"
 )
@@ -152,7 +152,6 @@ func (c *client) GetManifestGroup(ctx context.Context, lID mtypes.LeaseID) (bool
 
 		return false, crd.ManifestGroup{}, err
 	}
-
 
 	return true, obj.Spec.Group, nil
 }

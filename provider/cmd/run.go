@@ -60,7 +60,6 @@ const (
 	// FlagClusterK8s informs the provider to scan and utilize localized kubernetes client configuration
 	FlagClusterK8s = "cluster-k8s"
 
-
 	// FlagGatewayListenAddress determines listening address for Manifests
 	FlagGatewayListenAddress             = "gateway-listen-address"
 	FlagBidPricingStrategy               = "bid-price-strategy"
@@ -98,8 +97,8 @@ const (
 	FlagProviderConfig                   = "provider-config"
 	FlagCachedResultMaxAge               = "cached-result-max-age"
 	FlagRPCQueryTimeout                  = "rpc-query-timeout"
-	FlagBidPriceIpScale = "bid-price-ip-scale"
-	FlagEnableIPOperator = "ip-operator"
+	FlagBidPriceIpScale                  = "bid-price-ip-scale"
+	FlagEnableIPOperator                 = "ip-operator"
 )
 
 var (
@@ -325,7 +324,6 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
-
 	return cmd
 }
 
@@ -513,7 +511,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	log := openLogger().With("cmp","provider")
+	log := openLogger().With("cmp", "provider")
 
 	broadcaster, err := broadcaster.NewSerialClient(log, cctx, txFactory, info)
 	if err != nil {

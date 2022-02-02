@@ -19,10 +19,10 @@ type ConnectHostnameToDeploymentDirective struct {
 }
 
 type ClusterIPPassthroughDirective struct {
-	LeaseID     mtypes.LeaseID
-	ServiceName string
-	Port uint32
+	LeaseID      mtypes.LeaseID
+	ServiceName  string
+	Port         uint32
 	ExternalPort uint32
-	SharingKey string
-	Protocol manifest.ServiceProtocol
+	SharingKey   string
+	Protocol     manifest.ServiceProtocol
 }

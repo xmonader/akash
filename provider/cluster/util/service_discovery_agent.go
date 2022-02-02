@@ -1,23 +1,23 @@
 package util
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"github.com/boz/go-lifecycle"
 	"github.com/desertbit/timer"
 	"github.com/ovrclk/akash/util/runner"
+	"github.com/tendermint/tendermint/libs/log"
+	"math/rand"
 	"net"
 	"time"
-	"context"
-	"github.com/tendermint/tendermint/libs/log"
-	"errors"
-	"fmt"
-	"math/rand"
 )
 
 var (
 	ErrShuttingDown = errors.New("shutting down")
 )
 
-type ServiceDiscoveryAgent interface{
+type ServiceDiscoveryAgent interface {
 	Stop()
 
 	GetAddress(ctx context.Context) (net.SRV, error)
@@ -35,7 +35,7 @@ func NewServiceDiscoveryAgent(logger log.Logger, portName, serviceName, namespac
 		requests:        make(chan serviceDiscoveryRequest),
 		pendingRequests: nil,
 		result:          nil,
-		log: logger.With("cmp","service-discovery-agent"),
+		log:             logger.With("cmp", "service-discovery-agent"),
 	}
 
 	go sda.run()
@@ -44,26 +44,26 @@ func NewServiceDiscoveryAgent(logger log.Logger, portName, serviceName, namespac
 }
 
 type serviceDiscoveryAgent struct {
-	serviceName string
-	namespace string
-	portName string
+	serviceName  string
+	namespace    string
+	portName     string
 	portProtocol string
-	lc lifecycle.Lifecycle
+	lc           lifecycle.Lifecycle
 
 	discoverch chan struct{}
 
-	requests chan serviceDiscoveryRequest
+	requests        chan serviceDiscoveryRequest
 	pendingRequests []serviceDiscoveryRequest
-	result []net.SRV
-	log log.Logger
+	result          []net.SRV
+	log             log.Logger
 }
 
 type serviceDiscoveryRequest struct {
-	errCh chan <- error
-	resultCh chan <- []net.SRV
+	errCh    chan<- error
+	resultCh chan<- []net.SRV
 }
 
-func (sda *serviceDiscoveryAgent) Stop()  {
+func (sda *serviceDiscoveryAgent) Stop() {
 	sda.lc.Shutdown(nil)
 }
 
@@ -74,7 +74,7 @@ func (sda *serviceDiscoveryAgent) DiscoverNow() {
 	}
 }
 
-func (sda *serviceDiscoveryAgent) run(){
+func (sda *serviceDiscoveryAgent) run() {
 	defer sda.lc.ShutdownCompleted()
 	addrs := make([]net.SRV, 0)
 
@@ -82,20 +82,20 @@ func (sda *serviceDiscoveryAgent) run(){
 	retryTimer := timer.NewTimer(retryInterval)
 	retryTimer.Stop()
 	defer retryTimer.Stop()
-	var discoveryResult <- chan runner.Result
+	var discoveryResult <-chan runner.Result
 
 mainLoop:
 	for {
 		discover := len(addrs) == 0
 		select {
-		case <- sda.lc.ShutdownRequest():
+		case <-sda.lc.ShutdownRequest():
 			break mainLoop
-		case <- sda.discoverch:
+		case <-sda.discoverch:
 			discover = true // Could be ignored if discoveryResult is not nil
-		case <- retryTimer.C:
+		case <-retryTimer.C:
 			retryTimer.Stop()
 			discover = true
-		case result := <- discoveryResult:
+		case result := <-discoveryResult:
 			err := result.Error()
 			if err != nil {
 				sda.setResult(nil, err)
@@ -105,12 +105,12 @@ mainLoop:
 
 			addrs = (result.Value()).([]net.SRV)
 			sda.setResult(addrs, nil)
-		case req := <- sda.requests:
+		case req := <-sda.requests:
 			sda.handleRequest(req)
 		}
 
-		if discover && discoveryResult == nil{
-			discoveryResult = runner.Do(func() runner.Result{
+		if discover && discoveryResult == nil {
+			discoveryResult = runner.Do(func() runner.Result {
 				return runner.NewResult(sda.discover())
 			})
 		}
@@ -127,7 +127,7 @@ func (sda *serviceDiscoveryAgent) handleRequest(req serviceDiscoveryRequest) {
 	sda.pendingRequests = append(sda.pendingRequests, req)
 }
 
-func (sda *serviceDiscoveryAgent) setResult(addrs []net.SRV, err error){
+func (sda *serviceDiscoveryAgent) setResult(addrs []net.SRV, err error) {
 	sda.log.Debug("satisfying pending requests", "qty", len(sda.pendingRequests))
 	for _, pendingRequest := range sda.pendingRequests {
 		if err == nil {
@@ -146,28 +146,28 @@ func (sda *serviceDiscoveryAgent) setResult(addrs []net.SRV, err error){
 	}
 }
 
-func (sda *serviceDiscoveryAgent) GetResult(ctx context.Context) ([]net.SRV, error){
+func (sda *serviceDiscoveryAgent) GetResult(ctx context.Context) ([]net.SRV, error) {
 	errCh := make(chan error, 1)
 	resultCh := make(chan []net.SRV, 1)
 	req := serviceDiscoveryRequest{
-		errCh: errCh,
+		errCh:    errCh,
 		resultCh: resultCh,
 	}
 
 	select {
 	case sda.requests <- req:
-	case <- sda.lc.ShutdownRequest():
+	case <-sda.lc.ShutdownRequest():
 		return nil, ErrShuttingDown
-	case <- ctx.Done():
+	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 
 	select {
-	case result := <- resultCh:
+	case result := <-resultCh:
 		return result, nil
-	case err := <- errCh:
+	case err := <-errCh:
 		return nil, err
-	case <- ctx.Done():
+	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
@@ -185,10 +185,10 @@ func (sda *serviceDiscoveryAgent) GetAddress(ctx context.Context) (net.SRV, erro
 	return addr, nil
 }
 
-func (sda *serviceDiscoveryAgent) discover() ([]net.SRV, error){
+func (sda *serviceDiscoveryAgent) discover() ([]net.SRV, error) {
 	_, addrs, err := net.LookupSRV(sda.portName, sda.portProtocol, fmt.Sprintf("%s.%s.svc.cluster.local", sda.serviceName, sda.namespace))
 	if err != nil {
-		sda.log.Error("discovery failed","error", err, "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
+		sda.log.Error("discovery failed", "error", err, "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
 		return nil, err
 	}
 
@@ -197,8 +197,7 @@ func (sda *serviceDiscoveryAgent) discover() ([]net.SRV, error){
 	for i, addr := range addrs {
 		result[i] = *addr
 	}
-	sda.log.Info("discovery success", "addrs", result,  "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
+	sda.log.Info("discovery success", "addrs", result, "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
 
 	return result, nil
 }
-

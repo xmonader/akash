@@ -13,8 +13,8 @@ import (
 	"github.com/ovrclk/akash/provider/cluster"
 	clusterClient "github.com/ovrclk/akash/provider/cluster/kube"
 	"github.com/ovrclk/akash/provider/cluster/kube/metallb"
-	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	"github.com/ovrclk/akash/provider/cluster/types/v1beta2"
+	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	provider_flags "github.com/ovrclk/akash/provider/cmd/flags"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
@@ -46,23 +46,23 @@ type managedIp struct {
 }
 
 type ipOperator struct {
-	state map[string]managedIp
-	client cluster.Client
-	log log.Logger
-	server operator_common.OperatorHttp
-	leasesIgnored operator_common.IgnoreList
-	flagState operator_common.PrepareFlagFn
+	state             map[string]managedIp
+	client            cluster.Client
+	log               log.Logger
+	server            operator_common.OperatorHttp
+	leasesIgnored     operator_common.IgnoreList
+	flagState         operator_common.PrepareFlagFn
 	flagIgnoredLeases operator_common.PrepareFlagFn
-	flagUsage operator_common.PrepareFlagFn
-	providerAddr string
+	flagUsage         operator_common.PrepareFlagFn
+	providerAddr      string
 
 	available uint
-	inUse uint
+	inUse     uint
 
 	mllbc metallb.Client
 
 	providerSda clusterutil.ServiceDiscoveryAgent
-	barrier *barrier
+	barrier     *barrier
 
 	dataLock sync.Locker
 }
@@ -88,13 +88,13 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	for _, ipPassThrough := range entries {
 		k := getStateKey(ipPassThrough.GetLeaseID(), ipPassThrough.GetSharingKey(), ipPassThrough.GetExternalPort())
 		op.state[k] = managedIp{
-			presentLease:       ipPassThrough.GetLeaseID(),
-			presentServiceName: ipPassThrough.GetServiceName(),
-			lastEvent:          nil,
-			presentSharingKey: ipPassThrough.GetSharingKey(),
+			presentLease:        ipPassThrough.GetLeaseID(),
+			presentServiceName:  ipPassThrough.GetServiceName(),
+			lastEvent:           nil,
+			presentSharingKey:   ipPassThrough.GetSharingKey(),
 			presentExternalPort: ipPassThrough.GetExternalPort(),
-			presentPort: ipPassThrough.GetPort(),
-			lastChangedAt:  startupTime,
+			presentPort:         ipPassThrough.GetPort(),
+			lastChangedAt:       startupTime,
 		}
 	}
 	op.flagState()
@@ -122,7 +122,6 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	defer pruneTicker.Stop()
 	prepareTicker := time.NewTicker(2 * time.Second /*op.cfg.webRefreshInterval*/)
 	defer prepareTicker.Stop()
-
 
 	op.log.Info("barrier can now be passed")
 	op.barrier.enable()
@@ -175,7 +174,7 @@ loop:
 	op.barrier.disable()
 
 	// Wait for up to 30 seconds
-	ctxWithTimeout, timeoutCtxCancel := context.WithTimeout(context.Background(), time.Second * 30)
+	ctxWithTimeout, timeoutCtxCancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer timeoutCtxCancel()
 
 	err = op.barrier.waitUntilClear(ctxWithTimeout)
@@ -259,12 +258,12 @@ func (op *ipOperator) applyDeleteEvent(ctx context.Context, ev v1beta2.IPResourc
 
 func buildIPDirective(ev v1beta2.IPResourceEvent) ctypes.ClusterIPPassthroughDirective {
 	return ctypes.ClusterIPPassthroughDirective{
-		LeaseID:     ev.GetLeaseID(),
-		ServiceName: ev.GetServiceName(),
-		Port: ev.GetPort(),
+		LeaseID:      ev.GetLeaseID(),
+		ServiceName:  ev.GetServiceName(),
+		Port:         ev.GetPort(),
 		ExternalPort: ev.GetExternalPort(),
-		SharingKey:  ev.GetSharingKey(),
-		Protocol:  ev.GetProtocol(),
+		SharingKey:   ev.GetSharingKey(),
+		Protocol:     ev.GetProtocol(),
 	}
 }
 
@@ -272,7 +271,7 @@ func getStateKey(leaseID mtypes.LeaseID, sharingKey string, externalPort uint32)
 	return fmt.Sprintf("%v-%s-%d", leaseID, sharingKey, externalPort)
 }
 
-func getStateKeyFromEvent(ev v1beta2.IPResourceEvent) string{
+func getStateKeyFromEvent(ev v1beta2.IPResourceEvent) string {
 	return getStateKey(ev.GetLeaseID(), ev.GetSharingKey(), ev.GetExternalPort())
 }
 
@@ -316,7 +315,7 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev v1beta2.IPRe
 		return err
 	}
 
-	 // Update stored entry
+	// Update stored entry
 	entry.presentServiceName = ev.GetServiceName()
 	entry.presentLease = leaseID
 	entry.lastEvent = ev
@@ -361,21 +360,21 @@ func (op *ipOperator) prepareState(pd operator_common.PreparedResult) error {
 	for _, managedIpEntry := range op.state {
 		leaseID := managedIpEntry.presentLease
 
-		result := struct{
-			LastChangeTime string `json:"last-event-time,omitempty"`
-			LeaseID      mtypes.LeaseID `json:"lease-id"`
-			Namespace    string `json:"namespace"` // diagnostic only
-			Port uint32 `json:"port"`
-			ExternalPort uint32 `json:"external-port"`
-			ServiceName  string `json:"service-name"`
-			SharingKey string `json:"sharing-key"`
+		result := struct {
+			LastChangeTime string         `json:"last-event-time,omitempty"`
+			LeaseID        mtypes.LeaseID `json:"lease-id"`
+			Namespace      string         `json:"namespace"` // diagnostic only
+			Port           uint32         `json:"port"`
+			ExternalPort   uint32         `json:"external-port"`
+			ServiceName    string         `json:"service-name"`
+			SharingKey     string         `json:"sharing-key"`
 		}{
-			LeaseID:      leaseID,
-			Namespace:    clusterutil.LeaseIDToNamespace(leaseID),
-			Port:         managedIpEntry.presentPort,
-			ExternalPort: managedIpEntry.presentExternalPort,
-			ServiceName:  managedIpEntry.presentServiceName,
-			SharingKey: managedIpEntry.presentSharingKey,
+			LeaseID:        leaseID,
+			Namespace:      clusterutil.LeaseIDToNamespace(leaseID),
+			Port:           managedIpEntry.presentPort,
+			ExternalPort:   managedIpEntry.presentExternalPort,
+			ServiceName:    managedIpEntry.presentServiceName,
+			SharingKey:     managedIpEntry.presentSharingKey,
 			LastChangeTime: managedIpEntry.lastChangedAt.UTC().String(),
 		}
 
@@ -395,13 +394,13 @@ func (op *ipOperator) prepareState(pd operator_common.PreparedResult) error {
 	return nil
 }
 
-func handleHttpError(op *ipOperator, rw http.ResponseWriter, req *http.Request, err error, status int){
+func handleHttpError(op *ipOperator, rw http.ResponseWriter, req *http.Request, err error, status int) {
 	op.log.Error("http request processing failed", "method", req.Method, "path", req.URL.Path, "err", err)
 	rw.WriteHeader(status)
 
 	body := ipoptypes.IPOperatorErrorResponse{
 		Error: err.Error(),
-		Code: -1,
+		Code:  -1,
 	}
 
 	if errors.Is(err, ipoptypes.ErrIPOperator) {
@@ -430,7 +429,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	}
 	tlsDialer := tls.Dialer{
 		NetDialer: netDialer,
-		Config:    &tls.Config{
+		Config: &tls.Config{
 			Rand:                        nil,
 			Time:                        nil,
 			Certificates:                nil,
@@ -460,7 +459,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		},
 	}
 	httpClient := http.Client{
-		Transport:     &http.Transport{
+		Transport: &http.Transport{
 			Proxy:                  nil,
 			DialContext:            nil,
 			Dial:                   nil,
@@ -511,7 +510,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	}
 
 	var response *http.Response
-	err = retry.Do(func () error {
+	err = retry.Do(func() error {
 		var err error
 		response, err = httpClient.Do(statusReq)
 		if err != nil {
@@ -530,7 +529,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		return "", fmt.Errorf("provider status API returned status: %d", response.StatusCode)
 	}
 
-	statusData := struct{
+	statusData := struct {
 		Address string `json:"address"`
 	}{}
 	decoder := json.NewDecoder(response.Body)
@@ -551,21 +550,21 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	return providerAddr, nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator) {
+func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) *ipOperator {
 	retval := &ipOperator{
-		state:  make(map[string]managedIp),
-		client: client,
-		log:    logger,
-		server: operator_common.NewOperatorHttp(),
+		state:         make(map[string]managedIp),
+		client:        client,
+		log:           logger,
+		server:        operator_common.NewOperatorHttp(),
 		leasesIgnored: operator_common.NewIgnoreList(ilc),
-		mllbc: mllbc,
-		dataLock: &sync.Mutex{},
-		providerSda: providerSda,
-		barrier: &barrier{},
+		mllbc:         mllbc,
+		dataLock:      &sync.Mutex{},
+		providerSda:   providerSda,
+		barrier:       &barrier{},
 	}
 
-	retval.server.GetRouter().Use(func (next http.Handler) http.Handler {
-		return http.HandlerFunc(func (rw http.ResponseWriter, req *http.Request){
+	retval.server.GetRouter().Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			if !retval.barrier.enter() {
 				retval.log.Error("barrier is locked, can't service request", "path", req.URL.Path)
 				rw.WriteHeader(http.StatusServiceUnavailable)
@@ -586,19 +585,19 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common
 	})
 
 	// TODO - add auth based off TokenReview via k8s interface to below methods
-	retval.server.GetRouter().HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request){
+	retval.server.GetRouter().HandleFunc("/ip-lease-status/{owner}/{dseq}/{gseq}/{oseq}", func(rw http.ResponseWriter, req *http.Request) {
 		handleIPLeaseStatusGet(retval, rw, req)
 	}).Methods(http.MethodGet)
 	return retval
 }
 
-func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Request){
+func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Request) {
 	// Extract path variables, returning 404 if any are invalid
 	vars := mux.Vars(req)
 	dseqStr := vars["dseq"]
 	dseq, err := strconv.ParseUint(dseqStr, 10, 64)
 	if err != nil {
-		op.log.Error("could not parse path component as uint64","dseq", dseqStr, "error", err)
+		op.log.Error("could not parse path component as uint64", "dseq", dseqStr, "error", err)
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -606,7 +605,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	gseqStr := vars["gseq"]
 	gseq, err := strconv.ParseUint(gseqStr, 10, 32)
 	if err != nil {
-		op.log.Error("could not parse path component as uint32","gseq", gseqStr, "error", err)
+		op.log.Error("could not parse path component as uint32", "gseq", gseqStr, "error", err)
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -614,7 +613,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	oseqStr := vars["oseq"]
 	oseq, err := strconv.ParseUint(oseqStr, 10, 32)
 	if err != nil {
-		op.log.Error("could not parse path component as uint32","oseq", oseqStr, "error", err)
+		op.log.Error("could not parse path component as uint32", "oseq", oseqStr, "error", err)
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -653,11 +652,11 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	responseData := make([]ipoptypes.LeaseIPStatus, len(ipStatus))
 	for i, v := range ipStatus {
 		responseData[i] = ipoptypes.LeaseIPStatus{
-			Port: v.GetPort(),
+			Port:         v.GetPort(),
 			ExternalPort: v.GetExternalPort(),
-			ServiceName: v.GetServiceName(),
-			IP: v.GetIP(),
-			Protocol: v.GetProtocol().ToString(),
+			ServiceName:  v.GetServiceName(),
+			IP:           v.GetIP(),
+			Protocol:     v.GetProtocol().ToString(),
 		}
 	}
 	err = encoder.Encode(responseData)
@@ -669,7 +668,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
-	logger := operator_common.OpenLogger().With("operator","ip")
+	logger := operator_common.OpenLogger().With("operator", "ip")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -686,7 +685,7 @@ func doIPOperator(cmd *cobra.Command) error {
 
 	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP")
 
-	logger.Info("clients","kube", client, "metallb", mllbc)
+	logger.Info("clients", "kube", client, "metallb", mllbc)
 
 	op := newIpOperator(logger, client, operator_common.IgnoreListConfigFromViper(), mllbc, providerSda)
 	router := op.webRouter()
@@ -765,29 +764,29 @@ func (op *ipOperator) run(parentCtx context.Context) error {
 
 type barrier struct {
 	enabled int32
-	active int32
+	active  int32
 }
 
 func (b *barrier) enable() {
-	atomic.StoreInt32(& b.enabled, 1)
+	atomic.StoreInt32(&b.enabled, 1)
 }
 
 func (b *barrier) disable() {
-	atomic.StoreInt32(& b.enabled, 0)
+	atomic.StoreInt32(&b.enabled, 0)
 }
 
 func (b *barrier) enter() bool {
-	isEnabled := atomic.LoadInt32(& b.enabled) == 1
+	isEnabled := atomic.LoadInt32(&b.enabled) == 1
 	if !isEnabled {
 		return false
 	}
 
-	atomic.AddInt32(& b.active, 1)
+	atomic.AddInt32(&b.active, 1)
 	return true
 }
 
 func (b *barrier) exit() {
-	atomic.StoreInt32(& b.active, -1)
+	atomic.StoreInt32(&b.active, -1)
 }
 
 func (b *barrier) waitUntilClear(ctx context.Context) error {
@@ -806,4 +805,3 @@ func (b *barrier) waitUntilClear(ctx context.Context) error {
 		}
 	}
 }
-

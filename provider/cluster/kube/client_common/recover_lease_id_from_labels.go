@@ -1,16 +1,16 @@
 package client_common
 
 import (
+	"errors"
 	"fmt"
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"strconv"
-	"errors"
 )
 
 var (
-errMissingLabel              = errors.New("kube: missing label")
-errInvalidLabelValue         = errors.New("kube: invalid label value")
+	errMissingLabel      = errors.New("kube: missing label")
+	errInvalidLabelValue = errors.New("kube: invalid label value")
 )
 
 func RecoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) {
@@ -24,7 +24,7 @@ func RecoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) 
 	}
 	oseqS, ok := labels[builder.AkashLeaseOSeqLabelName]
 	if !ok {
-		return mtypes.LeaseID{},  fmt.Errorf("%w: %q", errMissingLabel, builder.AkashLeaseOSeqLabelName)
+		return mtypes.LeaseID{}, fmt.Errorf("%w: %q", errMissingLabel, builder.AkashLeaseOSeqLabelName)
 	}
 	owner, ok := labels[builder.AkashLeaseOwnerLabelName]
 	if !ok {
@@ -38,7 +38,7 @@ func RecoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) 
 
 	dseq, err := strconv.ParseUint(dseqS, 10, 64)
 	if err != nil {
-		return mtypes.LeaseID{},  fmt.Errorf("%w: dseq %q not a uint", errInvalidLabelValue, dseqS)
+		return mtypes.LeaseID{}, fmt.Errorf("%w: dseq %q not a uint", errInvalidLabelValue, dseqS)
 	}
 
 	gseq, err := strconv.ParseUint(gseqS, 10, 32)
@@ -48,7 +48,7 @@ func RecoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) 
 
 	oseq, err := strconv.ParseUint(oseqS, 10, 32)
 	if err != nil {
-		return mtypes.LeaseID{},  fmt.Errorf("%w: oesq %q not a uint", errInvalidLabelValue, oseqS)
+		return mtypes.LeaseID{}, fmt.Errorf("%w: oesq %q not a uint", errInvalidLabelValue, oseqS)
 	}
 
 	return mtypes.LeaseID{
@@ -59,4 +59,3 @@ func RecoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) 
 		Provider: provider,
 	}, nil
 }
-

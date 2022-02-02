@@ -33,7 +33,7 @@ const (
 	defaultSendTimeout    = uint32(60000)
 	upperLimitSendTimeout = defaultSendTimeout
 	defaultNextTries      = uint32(3)
-	endpointKindIP = "ip"
+	endpointKindIP        = "ip"
 )
 
 var (
@@ -41,7 +41,7 @@ var (
 	errCannotSpecifyOffAndOtherCases = errors.New("if 'off' is specified, no other cases may be specified")
 	errUnknownNextCase               = errors.New("next case is unknown")
 	errHTTPOptionNotAllowed          = errors.New("http option not allowed")
-	errSDLInvalid = errors.New("SDL invalid")
+	errSDLInvalid                    = errors.New("SDL invalid")
 )
 
 type v2 struct {
@@ -49,7 +49,7 @@ type v2 struct {
 	Services    map[string]v2Service    `yaml:"services,omitempty"`
 	Profiles    v2profiles              `yaml:"profiles,omitempty"`
 	Deployments map[string]v2Deployment `yaml:"deployment"`
-	Endpoints map[string]v2Endpoint `yaml:"endpoints"`
+	Endpoints   map[string]v2Endpoint   `yaml:"endpoints"`
 }
 
 type v2Endpoint struct {
@@ -60,7 +60,7 @@ type v2ExposeTo struct {
 	Service     string        `yaml:"service,omitempty"`
 	Global      bool          `yaml:"global,omitempty"`
 	HTTPOptions v2HTTPOptions `yaml:"http_options"`
-	IP string `yaml:"ip"`
+	IP          string        `yaml:"ip"`
 }
 
 type v2HTTPOptions struct {
@@ -191,7 +191,7 @@ type v2profiles struct {
 func (sdl *v2) computeEndpointSequenceNumbers() map[string]uint32 {
 	var endpointNames []string
 
-	for _, serviceName := range v2DeploymentSvcNames(sdl.Deployments)  {
+	for _, serviceName := range v2DeploymentSvcNames(sdl.Deployments) {
 
 		for _, expose := range sdl.Services[serviceName].Expose {
 			for _, to := range expose.To {
@@ -281,7 +281,7 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 						Service:      to.Service,
 						Global:       to.Global,
 						Hosts:        expose.Accept.Items,
-						IP: 		to.IP,
+						IP:           to.IP,
 					}
 
 					// Check to see if an IP endpoint is also specified
@@ -290,7 +290,7 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 						v.EndpointSequenceNumber = seqNo
 						endpoints = append(endpoints,
 							types.Endpoint{Kind: types.Endpoint_LEASED_IP,
-							SequenceNumber: seqNo})
+								SequenceNumber: seqNo})
 					}
 
 					kind := types.Endpoint_RANDOM_PORT
@@ -367,26 +367,26 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						var seqNo uint32
 						if to.Global && len(to.IP) != 0 {
 							_, exists := sdl.Endpoints[to.IP]
-							if ! exists {
+							if !exists {
 								return nil, fmt.Errorf("unknown endpoint %q", to.IP)
 							}
 
 							seqNo = ipEndpointNames[to.IP]
 							manifestResources.Endpoints = append(manifestResources.Endpoints, types.Endpoint{
-								Kind:          types.Endpoint_LEASED_IP,
+								Kind:           types.Endpoint_LEASED_IP,
 								SequenceNumber: seqNo,
 							})
 						}
 
 						manifestExpose = append(manifestExpose, manifest.ServiceExpose{
-							Service:      to.Service,
-							Port:         expose.Port,
-							ExternalPort: expose.As,
-							Proto:        proto,
-							Global:       to.Global,
-							Hosts:        expose.Accept.Items,
-							HTTPOptions:  httpOptions,
-							IP: to.IP,
+							Service:                to.Service,
+							Port:                   expose.Port,
+							ExternalPort:           expose.As,
+							Proto:                  proto,
+							Global:                 to.Global,
+							Hosts:                  expose.Accept.Items,
+							HTTPOptions:            httpOptions,
+							IP:                     to.IP,
 							EndpointSequenceNumber: seqNo,
 						})
 					}
@@ -399,7 +399,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						Global:       false,
 						Hosts:        expose.Accept.Items,
 						HTTPOptions:  httpOptions,
-						IP: "",
+						IP:           "",
 					})
 				}
 			}
@@ -412,7 +412,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 				Resources: manifestResources,
 				Count:     svcdepl.Count,
 				Command:   svc.Command,
-				Expose: manifestExpose,
+				Expose:    manifestExpose,
 			}
 
 			if svc.Params != nil {
@@ -455,7 +455,6 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 				return false
 			})
 
-
 			group.Services = append(group.Services, msvc)
 		}
 	}
@@ -487,7 +486,7 @@ func (sdl *v2) validate() error {
 		}
 	}
 
-	endpointsUsed :=  make(map[string]struct{})
+	endpointsUsed := make(map[string]struct{})
 	portsUsed := make(map[string]string)
 	for _, svcName := range v2DeploymentSvcNames(sdl.Deployments) {
 		depl := sdl.Deployments[svcName]
@@ -581,7 +580,7 @@ func (sdl *v2) validate() error {
 							return errStorageMultipleRootEphemeral
 						}
 
-						return fmt.Errorf("%w: mount %q already in use by volume %q" , errStorageDupMountPoint, mount, vlname)
+						return fmt.Errorf("%w: mount %q already in use by volume %q", errStorageDupMountPoint, mount, vlname)
 					}
 
 					mounts[mount] = name
@@ -602,7 +601,7 @@ func (sdl *v2) validate() error {
 		}
 	}
 
-	for endpointName, _ := range sdl.Endpoints {
+	for endpointName := range sdl.Endpoints {
 		_, inUse := endpointsUsed[endpointName]
 		if !inUse {
 			return fmt.Errorf("%w: endpoint %q declared but never used", errSDLInvalid, endpointName)

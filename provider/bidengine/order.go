@@ -167,8 +167,8 @@ func (o *order) run(checkForExistingBid bool) {
 		group       *dtypes.Group
 		reservation ctypes.Reservation
 
-		won       bool
-		msg       *mtypes.MsgCreateBid
+		won bool
+		msg *mtypes.MsgCreateBid
 	)
 
 	// Begin fetching group details immediately.
@@ -440,7 +440,6 @@ loop:
 				reservationCounter.WithLabelValues("close", metricsutils.SuccessLabel)
 			}
 		}
-
 
 		if bidPlaced {
 			o.log.Debug("closing bid", "order-id", o.orderID)

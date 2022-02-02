@@ -15,9 +15,9 @@ type Waitable interface {
 	String() string
 }
 
-type nullWaiter struct {}
+type nullWaiter struct{}
 
-func (nw nullWaiter) WaitForAll(ctx context.Context)error{
+func (nw nullWaiter) WaitForAll(ctx context.Context) error {
 	return nil
 }
 
@@ -26,18 +26,18 @@ func NewNullWaiter() OperatorWaiter {
 }
 
 type operatorWaiter struct {
-	waitables []Waitable
-	log log.Logger
+	waitables   []Waitable
+	log         log.Logger
 	delayPeriod time.Duration
-	allReady chan struct{}
+	allReady    chan struct{}
 }
 
-func NewOperatorWaiter(ctx context.Context, logger log.Logger, waitOn  ...Waitable) OperatorWaiter {
+func NewOperatorWaiter(ctx context.Context, logger log.Logger, waitOn ...Waitable) OperatorWaiter {
 	waiter := &operatorWaiter{
-		waitables: waitOn,
-		log: logger.With("cmp", "waiter"),
+		waitables:   waitOn,
+		log:         logger.With("cmp", "waiter"),
 		delayPeriod: 2 * time.Second,
-		allReady: make(chan struct{}),
+		allReady:    make(chan struct{}),
 	}
 
 	go waiter.run(ctx)
@@ -45,16 +45,16 @@ func NewOperatorWaiter(ctx context.Context, logger log.Logger, waitOn  ...Waitab
 	return waiter
 }
 
-func (w *operatorWaiter) WaitForAll(ctx context.Context) error{
+func (w *operatorWaiter) WaitForAll(ctx context.Context) error {
 	select {
-		case <- ctx.Done():
-			return ctx.Err()
-		case <- w.allReady:
-			return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-w.allReady:
+		return nil
 	}
 }
 
-func (w *operatorWaiter) run(ctx context.Context){
+func (w *operatorWaiter) run(ctx context.Context) {
 	for _, waitable := range w.waitables {
 		for {
 			err := waitable.Check(ctx)
@@ -64,7 +64,7 @@ func (w *operatorWaiter) run(ctx context.Context){
 				select {
 				case <-ctx.Done():
 					return
-				case <- time.After(w.delayPeriod):
+				case <-time.After(w.delayPeriod):
 				}
 
 				continue

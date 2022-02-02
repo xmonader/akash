@@ -7,8 +7,8 @@ import (
 	manifest "github.com/ovrclk/akash/manifest/v2beta1"
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
 	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
-	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	"github.com/ovrclk/akash/provider/cluster/types/v1beta2"
+	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/tendermint/tendermint/libs/log"
@@ -32,15 +32,14 @@ import (
 )
 
 const (
-	akashServiceTarget = "akash.network/service-target"
-	akashMetalLB = "metal-lb"
+	akashServiceTarget   = "akash.network/service-target"
+	akashMetalLB         = "metal-lb"
 	metalLbAllowSharedIp = "metallb.universe.tf/allow-shared-ip"
 )
 
 var (
 	errInvalidLeaseService = fmt.Errorf("%w lease service error", errMetalLB)
 )
-
 
 type Client interface {
 	GetIPAddressUsage(ctx context.Context) (uint, uint, error)
@@ -54,21 +53,20 @@ type Client interface {
 }
 
 type client struct {
-	kube kubernetes.Interface
+	kube       kubernetes.Interface
 	httpClient *http.Client
 
-	log               log.Logger
+	log log.Logger
 
 	sda clusterutil.ServiceDiscoveryAgent
 }
-
 
 func (c *client) String() string {
 	return fmt.Sprintf("metal LB client %p", c)
 }
 
 const (
-	metricsPath = "/metrics"
+	metricsPath    = "/metrics"
 	metricsTimeout = 10 * time.Second
 
 	poolName = "default"
@@ -83,8 +81,7 @@ var (
 	errMetalLB = errors.New("metal lb error")
 )
 
-
-func NewClient(configPath string, logger log.Logger) (Client, error){
+func NewClient(configPath string, logger log.Logger) (Client, error) {
 	config, err := client_common.OpenKubeConfig(configPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
@@ -130,12 +127,10 @@ func NewClient(configPath string, logger log.Logger) (Client, error){
 		ForceAttemptHTTP2:      false,
 	}
 
-
 	sda := clusterutil.NewServiceDiscoveryAgent(logger, "monitoring", "controller", "metallb-system", "TCP")
 
-
 	return &client{
-		sda: sda,
+		sda:  sda,
 		kube: kc,
 		httpClient: &http.Client{
 			Transport:     transport,
@@ -144,7 +139,7 @@ func NewClient(configPath string, logger log.Logger) (Client, error){
 			Timeout:       metricsTimeout,
 		},
 
-		log: logger.With("client","metallb"),
+		log: logger.With("client", "metallb"),
 	}, nil
 
 }
@@ -159,42 +154,40 @@ can get stuff like this to access metal lb metrics
 
   102  curl -I controller.metallb-system.svc.cluster.local:7472/metrics
 
- */
+*/
 
-
-func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint,  error) {
+func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint, error) {
 	metalAddr, err := c.sda.GetAddress(ctx)
 	if err != nil {
-		return math.MaxUint32,math.MaxUint32, err
+		return math.MaxUint32, math.MaxUint32, err
 	}
 	metricsURL := fmt.Sprintf("http://%s:%d%s", metalAddr.Target, metalAddr.Port, metricsPath)
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
 	if err != nil {
-		return math.MaxUint32,math.MaxUint32, err
+		return math.MaxUint32, math.MaxUint32, err
 	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return math.MaxUint32,math.MaxUint32, err
+		return math.MaxUint32, math.MaxUint32, err
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return math.MaxUint32,math.MaxUint32, fmt.Errorf("%w: response status %d", errMetalLB, response.StatusCode)
+		return math.MaxUint32, math.MaxUint32, fmt.Errorf("%w: response status %d", errMetalLB, response.StatusCode)
 	}
-
 
 	var parser expfmt.TextParser
 	mf, err := parser.TextToMetricFamilies(response.Body)
 	if err != nil {
-		return math.MaxUint32,math.MaxUint32, err
+		return math.MaxUint32, math.MaxUint32, err
 	}
 
 	/**
 	  Loooking for the following metrics
 	    metallb_allocator_addresses_in_use_total{pool="default"} 0
 	    metallb_allocator_addresses_total{pool="default"} 100
-	 */
+	*/
 
 	available := uint(0)
 	setAvailable := false
@@ -206,7 +199,7 @@ func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint,  error) {
 		}
 		var target *uint
 		var setTarget *bool
-		if entry.GetName() == metricNameAddrInUse   {
+		if entry.GetName() == metricNameAddrInUse {
 			target = &inUse
 			setTarget = &setInUse
 		} else if entry.GetName() == metricNameAddrTotal {
@@ -217,14 +210,14 @@ func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint,  error) {
 		}
 
 		metric := entry.GetMetric()
-		searchLoop:
-		for _, metricEntry := range metric{
+	searchLoop:
+		for _, metricEntry := range metric {
 			gauge := metricEntry.GetGauge()
 			if gauge == nil {
 				continue
 			}
 			for _, labelEntry := range metricEntry.Label {
-				if labelEntry.GetName()  != "pool" {
+				if labelEntry.GetName() != "pool" {
 					continue
 				}
 
@@ -247,14 +240,13 @@ func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint,  error) {
 }
 
 type ipLeaseState struct {
-	leaseID mtypes.LeaseID
-	ip string
-	serviceName string
+	leaseID      mtypes.LeaseID
+	ip           string
+	serviceName  string
 	externalPort uint32
-	port uint32
-	sharingKey string
-	protocol manifest.ServiceProtocol
-
+	port         uint32
+	sharingKey   string
+	protocol     manifest.ServiceProtocol
 }
 
 func (ipls ipLeaseState) GetLeaseID() mtypes.LeaseID {
@@ -266,22 +258,22 @@ func (ipls ipLeaseState) GetIP() string {
 func (ipls ipLeaseState) GetServiceName() string {
 	return ipls.serviceName
 }
-func (ipls ipLeaseState)GetExternalPort() uint32 {
+func (ipls ipLeaseState) GetExternalPort() uint32 {
 	return ipls.externalPort
 }
-func (ipls ipLeaseState)GetPort() uint32 {
+func (ipls ipLeaseState) GetPort() uint32 {
 	return ipls.port
 }
-func (ipls ipLeaseState)GetSharingKey() string {
+func (ipls ipLeaseState) GetSharingKey() string {
 	return ipls.sharingKey
 }
-func (ipls ipLeaseState)GetProtocol() manifest.ServiceProtocol {
+func (ipls ipLeaseState) GetProtocol() manifest.ServiceProtocol {
 	return ipls.protocol
 }
 
-func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]v1beta2.IPLeaseState, error){
+func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.LeaseID) ([]v1beta2.IPLeaseState, error) {
 	ns := builder.LidNS(leaseID)
-	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error){
+	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
 		return c.kube.CoreV1().Services(ns).List(ctx, opts)
 	})
 
@@ -321,7 +313,7 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 
 			// TODO - make this some sort of utility method
 			var proto manifest.ServiceProtocol
-			switch(port.Protocol) {
+			switch port.Protocol {
 
 			case corev1.ProtocolTCP:
 				proto = manifest.TCP
@@ -354,8 +346,6 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 	return result, nil
 }
 
-
-
 func (c *client) PurgeIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
 	ns := builder.LidNS(leaseID)
 	portName := createIPPassthroughResourceName(directive)
@@ -369,14 +359,14 @@ func (c *client) PurgeIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID,
 	return err
 }
 
-func createIPPassthroughResourceName(directive ctypes.ClusterIPPassthroughDirective) string{
+func createIPPassthroughResourceName(directive ctypes.ClusterIPPassthroughDirective) string {
 	return strings.ToLower(fmt.Sprintf("%s-ip-%d-%v", directive.ServiceName, directive.ExternalPort, directive.Protocol))
 }
 
 func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID, directive ctypes.ClusterIPPassthroughDirective) error {
 	var proto corev1.Protocol
 
-	switch(directive.Protocol) {
+	switch directive.Protocol {
 	case manifest.TCP:
 		proto = corev1.ProtocolTCP
 	case manifest.UDP:
@@ -404,34 +394,34 @@ func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID
 	labels[builder.AkashManagedLabelName] = "true"
 	labels[akashServiceTarget] = akashMetalLB
 
-	selector := map[string]string {
-		builder.AkashManagedLabelName: "true",
+	selector := map[string]string{
+		builder.AkashManagedLabelName:         "true",
 		builder.AkashManifestServiceLabelName: directive.ServiceName,
 	}
 	// TODO - specify metallb.universe.tf/address-pool annotation if configured to do so only that pool is used at any time
-	annotations := map[string]string {
+	annotations := map[string]string{
 		metalLbAllowSharedIp: directive.SharingKey,
 	}
 
 	port := corev1.ServicePort{
-		Name:        portName,
-		Protocol:    proto,
-		Port:        int32(directive.ExternalPort),
-		TargetPort:  intstr.FromInt(int(directive.Port)),
+		Name:       portName,
+		Protocol:   proto,
+		Port:       int32(directive.ExternalPort),
+		TargetPort: intstr.FromInt(int(directive.Port)),
 	}
 
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:                       portName,
-			Labels: labels,
+			Name:        portName,
+			Labels:      labels,
 			Annotations: annotations,
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
 				port,
 			},
-			Selector:                      selector,
-			Type:                          corev1.ServiceTypeLoadBalancer,
+			Selector: selector,
+			Type:     corev1.ServiceTypeLoadBalancer,
 		},
 		Status: corev1.ServiceStatus{},
 	}
@@ -456,9 +446,8 @@ func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID
 	return nil
 }
 
-
 func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough, error) {
-	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error){
+	servicePager := pager.New(func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
 		return c.kube.CoreV1().Services(metav1.NamespaceAll).List(ctx, opts)
 	})
 
@@ -490,7 +479,6 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			if service.Spec.Type != corev1.ServiceTypeLoadBalancer {
 				return fmt.Errorf("resource %q wrong type in service definition %v", service.ObjectMeta.Name, service.Spec.Type)
 			}
-
 
 			ports := service.Spec.Ports
 			const expectedNumberOfPorts = 1
@@ -533,17 +521,16 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			return nil
 		})
 
-
 	return result, err
 }
 
 type ipPassthrough struct {
-	lID mtypes.LeaseID
-	serviceName string
-	port uint32
+	lID          mtypes.LeaseID
+	serviceName  string
+	port         uint32
 	externalPort uint32
-	sharingKey string
-	protocol manifest.ServiceProtocol
+	sharingKey   string
+	protocol     manifest.ServiceProtocol
 }
 
 func (ev ipPassthrough) GetLeaseID() mtypes.LeaseID {

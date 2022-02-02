@@ -2,11 +2,11 @@ package operator_common
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"time"
-	"encoding/json"
-	"fmt"
 )
 
 type IgnoreListReadOnly interface {
@@ -29,22 +29,22 @@ type ignoreListEntry struct {
 	failedAt     time.Time
 	lastError    error
 
-	extra    map[string]struct{}
+	extra map[string]struct{}
 }
 
 type ignoreList struct {
 	entries map[mtypes.LeaseID]ignoreListEntry
-	cfg IgnoreListConfig
+	cfg     IgnoreListConfig
 }
 
-func NewIgnoreList(config IgnoreListConfig) IgnoreList{
+func NewIgnoreList(config IgnoreListConfig) IgnoreList {
 	return &ignoreList{
 		entries: make(map[mtypes.LeaseID]ignoreListEntry),
 		cfg:     config,
 	}
 }
 
-func (il *ignoreList) Prepare(pd  PreparedResult) error {
+func (il *ignoreList) Prepare(pd PreparedResult) error {
 	data := make(map[string]interface{})
 
 	err := il.each(func(leaseID mtypes.LeaseID, lastError error, failedAt time.Time, count uint, extra ...string) error {
@@ -90,10 +90,10 @@ func (il *ignoreList) Size() int {
 	return len(il.entries)
 }
 
-func (il *ignoreList) each(f func(k mtypes.LeaseID, failure error, failedAt time.Time, count uint, extra ...string) error ) error {
+func (il *ignoreList) each(f func(k mtypes.LeaseID, failure error, failedAt time.Time, count uint, extra ...string) error) error {
 	for k, v := range il.entries {
 		var extras []string
-		for extra, _ := range v.extra {
+		for extra := range v.extra {
 			extras = append(extras, extra)
 		}
 		err := f(k, v.lastError, v.failedAt, v.failureCount, extras...)
@@ -170,4 +170,3 @@ func (il *ignoreList) Prune() bool {
 
 	return deleted
 }
-

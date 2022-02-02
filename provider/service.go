@@ -21,7 +21,6 @@ import (
 	dtypes "github.com/ovrclk/akash/x/deployment/types/v1beta2"
 )
 
-
 // ValidateClient is the interface to check if provider will bid on given groupspec
 type ValidateClient interface {
 	Validate(context.Context, dtypes.GroupSpec) (ValidateGroupSpecResult, error)

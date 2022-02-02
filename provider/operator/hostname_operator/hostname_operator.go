@@ -27,13 +27,12 @@ import (
 	"github.com/ovrclk/akash/provider/operator/operator_common"
 )
 
-
 var (
 	errExpectedResourceNotFound = fmt.Errorf("%w: resource not found", operator_common.ErrObservationStopped)
 )
 
 type hostnameOperator struct {
-	hostnames  map[string]managedHostname
+	hostnames map[string]managedHostname
 
 	leasesIgnored operator_common.IgnoreList
 
@@ -41,10 +40,10 @@ type hostnameOperator struct {
 
 	log log.Logger
 
-	cfg hostnameOperatorConfig
+	cfg    hostnameOperatorConfig
 	server operator_common.OperatorHttp
 
-	flagHostnamesData operator_common.PrepareFlagFn
+	flagHostnamesData  operator_common.PrepareFlagFn
 	flagIgnoreListData operator_common.PrepareFlagFn
 }
 
@@ -426,7 +425,7 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 	return err
 }
 
-func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operator_common.IgnoreListConfig) (*hostnameOperator) {
+func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operator_common.IgnoreListConfig) *hostnameOperator {
 	op := &hostnameOperator{
 		hostnames:     make(map[string]managedHostname),
 		client:        client,
@@ -437,24 +436,23 @@ func newHostnameOperator(logger log.Logger, client cluster.Client, config hostna
 	}
 
 	op.flagIgnoreListData = op.server.AddPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
-	op.flagHostnamesData = op.server.AddPreparedEndpoint("/managed-hostnames",op.prepareHostnamesData)
+	op.flagHostnamesData = op.server.AddPreparedEndpoint("/managed-hostnames", op.prepareHostnamesData)
 
 	return op
 }
-
 
 func doHostnameOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 
 	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
 	config := hostnameOperatorConfig{
-		listenAddress:        viper.GetString(provider_flags.FlagListenAddress),
-		pruneInterval:        viper.GetDuration(provider_flags.FlagPruneInterval),
-		webRefreshInterval:   viper.GetDuration(provider_flags.FlagWebRefreshInterval),
-		retryDelay:           viper.GetDuration(provider_flags.FlagRetryDelay),
+		listenAddress:      viper.GetString(provider_flags.FlagListenAddress),
+		pruneInterval:      viper.GetDuration(provider_flags.FlagPruneInterval),
+		webRefreshInterval: viper.GetDuration(provider_flags.FlagWebRefreshInterval),
+		retryDelay:         viper.GetDuration(provider_flags.FlagRetryDelay),
 	}
 
-	logger := operator_common.OpenLogger().With("op","hostname")
+	logger := operator_common.OpenLogger().With("op", "hostname")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -501,7 +499,7 @@ func HostnameOperatorCmd() *cobra.Command {
 			return doHostnameOperator(cmd)
 		},
 	}
-	operator_common.AddOperatorFlags(cmd,"0.0.0.0:8085")
+	operator_common.AddOperatorFlags(cmd, "0.0.0.0:8085")
 	operator_common.AddIgnoreListFlags(cmd)
 
 	return cmd

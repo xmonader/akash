@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
+	"github.com/tendermint/tendermint/libs/log"
 	"io"
 	"net"
 	"net/http"
 	"time"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
 	hostnameOperatorHealthPath = "/health"
 )
 
-type HostnameOperatorClient interface{
+type HostnameOperatorClient interface {
 	Check(ctx context.Context) error
 	String() string
 
@@ -23,12 +23,12 @@ type HostnameOperatorClient interface{
 }
 
 type hostnameOperatorClient struct {
-	sda clusterutil.ServiceDiscoveryAgent
+	sda        clusterutil.ServiceDiscoveryAgent
 	httpClient *http.Client
-	log log.Logger
+	log        log.Logger
 }
 
-func NewHostnameOperatorClient(logger log.Logger) HostnameOperatorClient{
+func NewHostnameOperatorClient(logger log.Logger) HostnameOperatorClient {
 	sda := clusterutil.NewServiceDiscoveryAgent(logger, "status", "akash-hostname-operator", "akash-services", "tcp")
 
 	dialer := net.Dialer{
@@ -87,7 +87,6 @@ func (hopc *hostnameOperatorClient) newRequest(ctx context.Context, method strin
 	return http.NewRequest(method, remoteURL, body)
 }
 
-
 func (hopc *hostnameOperatorClient) Check(ctx context.Context) error {
 	// TODO - can this code path be shared with the IP operator client ?
 	req, err := hopc.newRequest(ctx, http.MethodGet, hostnameOperatorHealthPath, nil)
@@ -114,4 +113,3 @@ func (hopc *hostnameOperatorClient) String() string {
 func (hopc *hostnameOperatorClient) Stop() {
 	hopc.sda.Stop()
 }
-

@@ -49,7 +49,7 @@ var _ Client = (*nullClient)(nil)
 
 type ReadClient interface {
 	LeaseStatus(context.Context, mtypes.LeaseID) (map[string]*ctypes.ServiceStatus, error)
-	ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus ,error)
+	ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error)
 	LeaseEvents(context.Context, mtypes.LeaseID, string, bool) (ctypes.EventsWatcher, error)
 	LeaseLogs(context.Context, mtypes.LeaseID, string, bool, *int64) ([]*ctypes.ServiceLog, error)
 	ServiceStatus(context.Context, mtypes.LeaseID, string) (*ctypes.ServiceStatus, error)
@@ -60,7 +60,7 @@ type ReadClient interface {
 	ObserveHostnameState(ctx context.Context) (<-chan ctypes.HostnameResourceEvent, error)
 	GetHostnameDeploymentConnections(ctx context.Context) ([]ctypes.LeaseIDHostnameConnection, error)
 
-	ObserveIPState(ctx context.Context) (<- chan ctypes.IPResourceEvent, error)
+	ObserveIPState(ctx context.Context) (<-chan ctypes.IPResourceEvent, error)
 }
 
 // Client interface lease and deployment methods
@@ -98,8 +98,7 @@ type Client interface {
 
 	DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, port uint32, externalPort uint32, proto manifest.ServiceProtocol, sharingKey string) error
 	PurgeDeclaredIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, externalPort uint32, proto manifest.ServiceProtocol) error
-    PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error
-
+	PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error
 }
 
 func ErrorIsOkToSendToClient(err error) bool {
@@ -427,7 +426,7 @@ func (c *nullClient) Deploy(ctx context.Context, lid mtypes.LeaseID, mgroup *man
 	return nil
 }
 
-func (_ *nullClient) ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error)  {
+func (_ *nullClient) ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error) {
 	return nil, errNotImplemented
 }
 
@@ -582,7 +581,6 @@ func (c *nullClient) AllHostnames(context.Context) ([]ctypes.ActiveHostname, err
 	return nil, nil
 }
 
-
 func (c *nullClient) KubeVersion() (*version.Info, error) {
 	return nil, nil
 }
@@ -591,11 +589,11 @@ func (c *nullClient) DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceN
 	return errNotImplemented
 }
 
-func (c* nullClient) PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error {
+func (c *nullClient) PurgeDeclaredIPs(ctx context.Context, lID mtypes.LeaseID) error {
 	return errNotImplemented
 }
 
-func (c* nullClient) ObserveIPState(ctx context.Context) (<- chan ctypes.IPResourceEvent, error) {
+func (c *nullClient) ObserveIPState(ctx context.Context) (<-chan ctypes.IPResourceEvent, error) {
 	return nil, errNotImplemented
 }
 

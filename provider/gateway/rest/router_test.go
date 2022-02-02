@@ -70,8 +70,7 @@ type routerTest struct {
 	host           *url.URL
 }
 
-
- // TODO - add some tests in here to make sure the IP operator calls work as intended
+// TODO - add some tests in here to make sure the IP operator calls work as intended
 
 func runRouterTest(t *testing.T, authClient bool, fn func(*routerTest)) {
 	t.Helper()
@@ -101,7 +100,7 @@ func runRouterTest(t *testing.T, authClient bool, fn func(*routerTest)) {
 		certs = mf.ccert.Cert
 	}
 
-	withServer(t, mf.paddr, mocks.pclient, mocks.qclient, mf.pcert.Cert, operator_clients.NullIPOperatorClient(),  func(host string) {
+	withServer(t, mf.paddr, mocks.pclient, mocks.qclient, mf.pcert.Cert, operator_clients.NullIPOperatorClient(), func(host string) {
 		var err error
 		mf.host, err = url.Parse(host)
 		require.NoError(t, err)
@@ -593,29 +592,29 @@ func mockManifestGroupsForRouterTest(rt *routerTest, leaseID mtypes.LeaseID) {
 	}
 	rt.pcclient.On("LeaseStatus", mock.Anything, leaseID).Return(status, nil)
 	rt.pcclient.On("GetManifestGroup", mock.Anything, leaseID).Return(true, v2beta1.ManifestGroup{
-		Name:     testGroupName,
+		Name: testGroupName,
 		Services: []v2beta1.ManifestService{{
-			Name:      testServiceName,
-			Image:     testImageName,
-			Args:      nil,
-			Env:       nil,
+			Name:  testServiceName,
+			Image: testImageName,
+			Args:  nil,
+			Env:   nil,
 			Resources: v2beta1.ResourceUnits{
-				CPU:     1000,
-				Memory:  "3333",
+				CPU:    1000,
+				Memory: "3333",
 				Storage: []v2beta1.ManifestServiceStorage{{
 					Name: "",
 					Size: "4444",
 				}},
 			},
-			Count:     1,
-			Expose:    []v2beta1.ManifestServiceExpose{{
-				Port:                   8080,
-				ExternalPort:           80,
-				Proto:                  "TCP",
-				Service:                testServiceName,
-				Global:                 true,
-				Hosts:                  []string{"hello.localhost"},
-				HTTPOptions:            v2beta1.ManifestServiceExposeHTTPOptions{
+			Count: 1,
+			Expose: []v2beta1.ManifestServiceExpose{{
+				Port:         8080,
+				ExternalPort: 80,
+				Proto:        "TCP",
+				Service:      testServiceName,
+				Global:       true,
+				Hosts:        []string{"hello.localhost"},
+				HTTPOptions: v2beta1.ManifestServiceExposeHTTPOptions{
 					MaxBodySize: 1,
 					ReadTimeout: 2,
 					SendTimeout: 3,
@@ -626,7 +625,7 @@ func mockManifestGroupsForRouterTest(rt *routerTest, leaseID mtypes.LeaseID) {
 				IP:                     "",
 				EndpointSequenceNumber: 1,
 			}},
-			Params:    nil,
+			Params: nil,
 		}},
 	}, nil)
 }

@@ -68,7 +68,7 @@ type deploymentManager struct {
 	updatech         chan *manifest.Group
 	teardownch       chan struct{}
 	currentHostnames map[string]struct{}
-	currentIPs	map[string]serviceExposeWithServiceName
+	currentIPs       map[string]serviceExposeWithServiceName
 
 	log             log.Logger
 	lc              lifecycle.Lifecycle
@@ -81,21 +81,21 @@ func newDeploymentManager(s *service, lease mtypes.LeaseID, mgroup *manifest.Gro
 	logger := s.log.With("cmp", "deployment-manager", "lease", lease, "manifest-group", mgroup.Name)
 
 	dm := &deploymentManager{
-		bus:                 s.bus,
-		client:              s.client,
-		session:             s.session,
-		state:               dsDeployActive,
-		lease:               lease,
-		mgroup:              mgroup,
-		wg:                  sync.WaitGroup{},
-		updatech:            make(chan *manifest.Group),
-		teardownch:          make(chan struct{}),
-		log:                 logger,
-		lc:                  lifecycle.New(),
-		hostnameService:     s.HostnameService(),
-		config:              s.config,
-		currentHostnames:    make(map[string]struct{}),
-		currentIPs: make(map[string]serviceExposeWithServiceName),
+		bus:              s.bus,
+		client:           s.client,
+		session:          s.session,
+		state:            dsDeployActive,
+		lease:            lease,
+		mgroup:           mgroup,
+		wg:               sync.WaitGroup{},
+		updatech:         make(chan *manifest.Group),
+		teardownch:       make(chan struct{}),
+		log:              logger,
+		lc:               lifecycle.New(),
+		hostnameService:  s.HostnameService(),
+		config:           s.config,
+		currentHostnames: make(map[string]struct{}),
+		currentIPs:       make(map[string]serviceExposeWithServiceName),
 	}
 
 	ctx, _ := TieContextToLifecycle(context.Background(), s.lc)
@@ -325,7 +325,7 @@ func (dm *deploymentManager) startTeardown() <-chan error {
 
 type serviceExposeWithServiceName struct {
 	expose manifest.ServiceExpose
-	name string
+	name   string
 }
 
 func (sewsn serviceExposeWithServiceName) idIP() string {
@@ -403,7 +403,7 @@ func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 			}
 
 			if expose.Global && len(expose.IP) != 0 {
-				v := serviceExposeWithServiceName{expose:expose, name: service.Name}
+				v := serviceExposeWithServiceName{expose: expose, name: service.Name}
 				leasedIPs = append(leasedIPs, v)
 				ipsInThisRequest[v.idIP()] = v
 				dm.log.Debug("added IP declaration", "service", v.name, "port", v.expose.ExternalPort, "endpoint", v.expose.IP)
@@ -466,7 +466,7 @@ func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 	}
 
 	// Remove old IPs not in use
-	for  _, serviceExpose := range purgeIPs {
+	for _, serviceExpose := range purgeIPs {
 		err = dm.client.PurgeDeclaredIP(ctx, dm.lease, serviceExpose.name, uint32(serviceExpose.expose.Port), serviceExpose.expose.Proto)
 		if err != nil {
 			return withheldHostnames, err
@@ -476,7 +476,7 @@ func (dm *deploymentManager) doDeploy(ctx context.Context) ([]string, error) {
 	return withheldHostnames, nil
 }
 
-func (dm *deploymentManager) getCleanupRetryOpts (ctx context.Context) []retry.Option{
+func (dm *deploymentManager) getCleanupRetryOpts(ctx context.Context) []retry.Option {
 	retryFn := func(err error) bool {
 		isCanceled := errors.Is(err, context.Canceled)
 		isDeadlineExceeeded := errors.Is(err, context.DeadlineExceeded)
@@ -484,8 +484,8 @@ func (dm *deploymentManager) getCleanupRetryOpts (ctx context.Context) []retry.O
 	}
 	return []retry.Option{
 		retry.Attempts(50),
-		retry.Delay(100*time.Millisecond),
-		retry.MaxDelay(3000*time.Millisecond),
+		retry.Delay(100 * time.Millisecond),
+		retry.MaxDelay(3000 * time.Millisecond),
 		retry.DelayType(retry.BackOffDelay),
 		retry.LastErrorOnly(true),
 		retry.RetryIf(retryFn),
@@ -514,7 +514,7 @@ func (dm *deploymentManager) doTeardown(ctx context.Context) error {
 		teardownResults <- result
 	}()
 
-	go func () {
+	go func() {
 		result := retry.Do(func() error {
 			err := dm.client.PurgeDeclaredHostnames(ctx, dm.lease)
 			if err != nil {
@@ -530,7 +530,7 @@ func (dm *deploymentManager) doTeardown(ctx context.Context) error {
 		teardownResults <- result
 	}()
 
-	go func () {
+	go func() {
 		result := retry.Do(func() error {
 			err := dm.client.PurgeDeclaredIPs(ctx, dm.lease)
 			if err != nil {
@@ -547,13 +547,13 @@ func (dm *deploymentManager) doTeardown(ctx context.Context) error {
 	}()
 
 	var firstError error
-	for i := 0 ; i != teardownActivityCount; i++ {
+	for i := 0; i != teardownActivityCount; i++ {
 		select {
-		case err := <- teardownResults:
+		case err := <-teardownResults:
 			if err != nil && firstError == nil {
-					firstError = err
+				firstError = err
 			}
-		case <- ctx.Done():
+		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
@@ -569,18 +569,18 @@ func (dm *deploymentManager) do(fn func() error) <-chan error {
 	return ch
 }
 
-func TieContextToLifecycle(parentCtx context.Context, lc lifecycle.Lifecycle) (context.Context, context.CancelFunc){
+func TieContextToLifecycle(parentCtx context.Context, lc lifecycle.Lifecycle) (context.Context, context.CancelFunc) {
 	return TieContextToChannel(parentCtx, lc.ShuttingDown())
 }
 
-func TieContextToChannel(parentCtx context.Context, donech <- chan struct{}) (context.Context, context.CancelFunc) {
+func TieContextToChannel(parentCtx context.Context, donech <-chan struct{}) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
-	go func () {
-		select{
-		case <- donech:
+	go func() {
+		select {
+		case <-donech:
 			cancel()
-		case <- ctx.Done():
+		case <-ctx.Done():
 		}
 	}()
 

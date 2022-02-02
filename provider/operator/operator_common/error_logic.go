@@ -5,5 +5,5 @@ import (
 )
 
 var (
-ErrObservationStopped       = errors.New("observation stopped")
+	ErrObservationStopped = errors.New("observation stopped")
 )

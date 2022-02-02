@@ -6,10 +6,10 @@ import (
 	"net/http"
 )
 
-type PrepareFlagFn func ()
-type PrepareFn func (pd PreparedResult) error
-type preparedEntry struct{
-	data *preparedResult
+type PrepareFlagFn func()
+type PrepareFn func(pd PreparedResult) error
+type preparedEntry struct {
+	data    *preparedResult
 	prepare PrepareFn
 }
 
@@ -20,13 +20,13 @@ type OperatorHttp interface {
 }
 
 type operatorHttp struct {
-	router *mux.Router
+	router  *mux.Router
 	results map[string]preparedEntry
 }
 
 func NewOperatorHttp() OperatorHttp {
 	retval := &operatorHttp{
-		router: mux.NewRouter(),
+		router:  mux.NewRouter(),
 		results: make(map[string]preparedEntry),
 	}
 
@@ -35,7 +35,7 @@ func NewOperatorHttp() OperatorHttp {
 		_, _ = io.WriteString(rw, "OK")
 	})
 
-	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request){
+	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 		// TODO - write the version back in the standardized way from Arijit's Pr
 		io.WriteString(rw, "0.0.0")
@@ -49,18 +49,18 @@ func (opHttp *operatorHttp) GetRouter() *mux.Router {
 }
 
 func (opHttp *operatorHttp) AddPreparedEndpoint(path string, prepare PrepareFn) PrepareFlagFn {
-	_ ,exists := opHttp.results[path]
+	_, exists := opHttp.results[path]
 	if exists {
 		panic("prepared result exists for path: " + path)
 	}
 
 	entry := preparedEntry{
-		data: newPreparedResult(),
+		data:    newPreparedResult(),
 		prepare: prepare,
 	}
 	opHttp.results[path] = entry
 
-	opHttp.router.HandleFunc(path, func(rw http.ResponseWriter, req *http.Request){
+	opHttp.router.HandleFunc(path, func(rw http.ResponseWriter, req *http.Request) {
 		servePreparedResult(rw, entry.data)
 	}).Methods(http.MethodGet)
 

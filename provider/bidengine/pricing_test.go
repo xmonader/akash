@@ -260,7 +260,7 @@ func Test_ScalePricingByCountOfResources(t *testing.T) {
 }
 
 func Test_ScalePricingForIPs(t *testing.T) {
-	ipPriceInt := int64(testutil.RandRangeInt(100,1000))
+	ipPriceInt := int64(testutil.RandRangeInt(100, 1000))
 	ipPrice := decimal.NewFromInt(ipPriceInt)
 
 	pricing, err := MakeScalePricing(decimal.Zero, decimal.Zero, Storage{

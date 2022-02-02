@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const(
+const (
 	FlagIgnoreListEntryLimit = "ignore-list-entry-limit"
 	FlagIgnoreListAgeLimit   = "ignore-list-age-limit"
 	FlagEventFailureLimit    = "event-failure-limit"
@@ -15,8 +15,8 @@ const(
 type IgnoreListConfig struct {
 	// This is a config object, so it isn't exported as an interface
 	FailureLimit uint
-	EntryLimit uint
-	AgeLimit time.Duration
+	EntryLimit   uint
+	AgeLimit     time.Duration
 }
 
 func IgnoreListConfigFromViper() IgnoreListConfig {

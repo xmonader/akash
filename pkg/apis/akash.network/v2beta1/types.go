@@ -238,7 +238,7 @@ func (ms ManifestService) toAkash() (manifest.Service, error) {
 
 		if len(value.IP) != 0 {
 			res.Endpoints = append(res.Endpoints, types.Endpoint{
-				Kind: types.Endpoint_LEASED_IP,
+				Kind:           types.Endpoint_LEASED_IP,
 				SequenceNumber: value.EndpointSequenceNumber,
 			})
 		}
@@ -306,10 +306,10 @@ type ManifestServiceExpose struct {
 	Service      string `json:"service,omitempty"`
 	Global       bool   `json:"global,omitempty"`
 	// accepted hostnames
-	Hosts       []string                         `json:"hosts,omitempty"`
-	HTTPOptions ManifestServiceExposeHTTPOptions `json:"http_options,omitempty"`
-	IP string `json:"ip,omitempty"`
-	EndpointSequenceNumber uint32 `json:"endpoint_sequence_number"`
+	Hosts                  []string                         `json:"hosts,omitempty"`
+	HTTPOptions            ManifestServiceExposeHTTPOptions `json:"http_options,omitempty"`
+	IP                     string                           `json:"ip,omitempty"`
+	EndpointSequenceNumber uint32                           `json:"endpoint_sequence_number"`
 }
 
 type ManifestServiceExposeHTTPOptions struct {
@@ -327,15 +327,15 @@ func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 		return manifest.ServiceExpose{}, err
 	}
 	return manifest.ServiceExpose{
-		Port:         mse.Port,
-		ExternalPort: mse.ExternalPort,
-		Proto:        proto,
-		Service:      mse.Service,
-		Global:       mse.Global,
-		Hosts:        mse.Hosts,
+		Port:                   mse.Port,
+		ExternalPort:           mse.ExternalPort,
+		Proto:                  proto,
+		Service:                mse.Service,
+		Global:                 mse.Global,
+		Hosts:                  mse.Hosts,
 		EndpointSequenceNumber: mse.EndpointSequenceNumber,
-		IP:           mse.IP,
-		HTTPOptions:  manifest.ServiceExposeHTTPOptions{
+		IP:                     mse.IP,
+		HTTPOptions: manifest.ServiceExposeHTTPOptions{
 			MaxBodySize: mse.HTTPOptions.MaxBodySize,
 			ReadTimeout: mse.HTTPOptions.ReadTimeout,
 			SendTimeout: mse.HTTPOptions.SendTimeout,
@@ -348,13 +348,13 @@ func (mse ManifestServiceExpose) toAkash() (manifest.ServiceExpose, error) {
 
 func manifestServiceExposeFromAkash(amse manifest.ServiceExpose) ManifestServiceExpose {
 	return ManifestServiceExpose{
-		Port:         amse.Port,
-		ExternalPort: amse.ExternalPort,
-		Proto:        amse.Proto.ToString(),
-		Service:      amse.Service,
-		Global:       amse.Global,
-		Hosts:        amse.Hosts,
-		IP: amse.IP,
+		Port:                   amse.Port,
+		ExternalPort:           amse.ExternalPort,
+		Proto:                  amse.Proto.ToString(),
+		Service:                amse.Service,
+		Global:                 amse.Global,
+		Hosts:                  amse.Hosts,
+		IP:                     amse.IP,
 		EndpointSequenceNumber: amse.EndpointSequenceNumber,
 		HTTPOptions: ManifestServiceExposeHTTPOptions{
 			MaxBodySize: amse.HTTPOptions.MaxBodySize,
@@ -498,10 +498,10 @@ type ProviderLeasedIPStatus struct {
 }
 
 type ProviderLeasedIPSpec struct {
-	LeaseID LeaseID       `json:"lease_id"`
-	ServiceName  string `json:"service_name"`
-	Port uint32 `json:"port"`
-	ExternalPort uint32 `json:"external_port"`
-	SharingKey   string `json:"sharing_key"`
-	Protocol string `json:"protocol"`
+	LeaseID      LeaseID `json:"lease_id"`
+	ServiceName  string  `json:"service_name"`
+	Port         uint32  `json:"port"`
+	ExternalPort uint32  `json:"external_port"`
+	SharingKey   string  `json:"sharing_key"`
+	Protocol     string  `json:"protocol"`
 }

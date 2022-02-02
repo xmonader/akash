@@ -19,7 +19,7 @@ var (
 	errNotImplemented = errors.New("not implemented")
 )
 
-type IPOperatorClient interface{
+type IPOperatorClient interface {
 	Check(ctx context.Context) error
 	GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error)
 
@@ -28,9 +28,9 @@ type IPOperatorClient interface{
 	String() string
 }
 
-
 /* A null client for use in tests and other scenarios */
 type ipOperatorNullClient struct{}
+
 func NullIPOperatorClient() IPOperatorClient {
 	return ipOperatorNullClient{}
 }
@@ -39,7 +39,7 @@ func (v ipOperatorNullClient) String() string {
 	return fmt.Sprintf("<%T>", v)
 }
 
-func (_ ipOperatorNullClient) Check(ctx context.Context) (error) {
+func (_ ipOperatorNullClient) Check(ctx context.Context) error {
 	return errNotImplemented
 }
 
@@ -47,7 +47,7 @@ func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
 
-func (_ ipOperatorNullClient) Stop(){}
+func (_ ipOperatorNullClient) Stop() {}
 
 func (_ ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
 	return nil, errNotImplemented
@@ -97,7 +97,7 @@ func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
 			Jar:           nil,
 			Timeout:       requestTimeout,
 		},
-		log: logger.With("operator","ip"),
+		log: logger.With("operator", "ip"),
 	}, nil // TODO - can we possibly return an error here?
 }
 
@@ -115,9 +115,9 @@ const (
 
 /* A client to talk to the Akash implementation of the IP Operator via HTTP */
 type ipOperatorClient struct {
-	sda clusterutil.ServiceDiscoveryAgent
+	sda        clusterutil.ServiceDiscoveryAgent
 	httpClient *http.Client
-	log log.Logger
+	log        log.Logger
 }
 
 var errNotAlive = errors.New("ip operator is not yet alive")
@@ -140,7 +140,6 @@ func (ipoc *ipOperatorClient) Check(ctx context.Context) error {
 
 	return nil
 }
-
 
 func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, path string, body io.Reader) (*http.Request, error) {
 	addr, err := ipoc.sda.GetAddress(ctx)
@@ -209,7 +208,7 @@ func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 	return result, nil
 }
 
-func extractRemoteError(response *http.Response) error{
+func extractRemoteError(response *http.Response) error {
 	body := ipoptypes.IPOperatorErrorResponse{}
 	decoder := json.NewDecoder(response.Body)
 	err := decoder.Decode(&body)

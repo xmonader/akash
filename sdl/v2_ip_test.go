@@ -61,7 +61,7 @@ func TestV2Parse_IP(t *testing.T) {
 	require.Greater(t, expose.EndpointSequenceNumber, uint32(0))
 }
 
-func TestV2Parse_SharedIP(t *testing.T){
+func TestV2Parse_SharedIP(t *testing.T) {
 	// Read a file with 1 group having 1 endpoint shared amongst containers
 	sdl1, err := ReadFile("../x/deployment/testdata/deployment-v2-shared-ip-endpoint.yaml")
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestV2Parse_SharedIP(t *testing.T){
 	require.Equal(t, serviceIPEndpoint.SequenceNumber, ipEndpoint.SequenceNumber)
 }
 
-func TestV2Parse_MultipleIP(t *testing.T){
+func TestV2Parse_MultipleIP(t *testing.T) {
 	// Read a file with 1 group having two endpoints
 	sdl1, err := ReadFile("../x/deployment/testdata/deployment-v2-multi-ip-endpoint.yaml")
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestV2Parse_MultipleIP(t *testing.T){
 	_ = mani
 }
 
-func TestV2Parse_MultipleGroupsIP(t *testing.T){
+func TestV2Parse_MultipleGroupsIP(t *testing.T) {
 	// Read a file with two groups, each one having an IP endpoint that is distinct
 	sdl1, err := ReadFile("../x/deployment/testdata/deployment-v2-multi-groups-ip-endpoint.yaml")
 	require.NoError(t, err)
