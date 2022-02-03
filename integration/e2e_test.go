@@ -176,6 +176,11 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		Host:   jwtHost,
 		Scheme: "https",
 	}
+
+	_, port, err = server.FreeTCPAddr()
+	require.NoError(s.T(), err)
+	hostnameOperatorHost := fmt.Sprintf("localhost:%s", port)
+
 	provFileStr := fmt.Sprintf(providerTemplate, provURL.String(), jwtURL.String())
 	tmpFile, err := ioutil.TempFile(s.network.BaseDir, "provider.yaml")
 	require.NoError(s.T(), err)
@@ -298,6 +303,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 			provURL.Host,
 			fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(20))).String()),
 			"--deployment-runtime-class=none",
+			fmt.Sprintf("--hostname-operator-endpoint=%s", hostnameOperatorHost),
 		)
 
 		return err
@@ -356,7 +362,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	s.group.Go(func() error {
 		s.T().Log("starting hostname operator for test")
-		_, err := ptestutil.RunLocalHostnameOperator(s.ctx, cctx)
+		_, err := ptestutil.RunLocalHostnameOperator(s.ctx, cctx, hostnameOperatorHost)
 		s.Require().NoError(err)
 
 		return nil
