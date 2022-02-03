@@ -17,10 +17,7 @@ type IgnoreListReadOnly interface {
 type IgnoreList interface {
 	IgnoreListReadOnly
 	Prepare(pd PreparedResult) error
-
-	//Each(f func(k mtypes.LeaseID, failure error, failedAt time.Time, count uint, extra ...string) error ) error
 	AddError(id mtypes.LeaseID, err error, extra ...string)
-
 	Prune() bool
 }
 
@@ -63,10 +60,7 @@ func (il *ignoreList) Prepare(pd PreparedResult) error {
 			Namespace:     clusterutil.LeaseIDToNamespace(leaseID),
 		}
 
-		for _, hostname := range extra {
-			preparedEntry.Hostnames = append(preparedEntry.Hostnames, hostname)
-		}
-
+		preparedEntry.Hostnames = append(preparedEntry.Hostnames, extra...)
 		data[leaseID.String()] = preparedEntry
 		return nil
 	})
@@ -122,10 +116,6 @@ func (il *ignoreList) AddError(k mtypes.LeaseID, failure error, extra ...string)
 	il.entries[k] = entry
 }
 
-func (il *ignoreList) getFailureCount(k mtypes.LeaseID) uint {
-	return il.entries[k].failureCount
-}
-
 func (il *ignoreList) IsFlagged(k mtypes.LeaseID) bool {
 	entry, ok := il.entries[k]
 	if !ok {
@@ -162,7 +152,6 @@ func (il *ignoreList) Prune() bool {
 		}
 
 		for _, leaseID := range toDelete {
-			//op.log.Info("removing ignore list entry", "lease", leaseID.String())
 			delete(il.entries, leaseID)
 			deleted = true
 		}

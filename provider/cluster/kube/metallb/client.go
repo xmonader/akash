@@ -197,13 +197,15 @@ func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint, error) {
 		}
 		var target *uint
 		var setTarget *bool
-		if entry.GetName() == metricNameAddrInUse {
+
+		switch entry.GetName() {
+		case metricNameAddrInUse:
 			target = &inUse
 			setTarget = &setInUse
-		} else if entry.GetName() == metricNameAddrTotal {
+		case metricNameAddrTotal:
 			target = &available
 			setTarget = &setAvailable
-		} else {
+		default:
 			continue
 		}
 
@@ -475,13 +477,13 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			}
 
 			if service.Spec.Type != corev1.ServiceTypeLoadBalancer {
-				return fmt.Errorf("resource %q wrong type in service definition %v", service.ObjectMeta.Name, service.Spec.Type)
+				return fmt.Errorf("%w: resource %q wrong type in service definition %v", errMetalLB, service.ObjectMeta.Name, service.Spec.Type)
 			}
 
 			ports := service.Spec.Ports
 			const expectedNumberOfPorts = 1
 			if len(ports) != expectedNumberOfPorts {
-				return fmt.Errorf("resource %q  wrong number of ports in load balancer service definition. expected %d, got %d", service.ObjectMeta.Name, expectedNumberOfPorts, len(ports))
+				return fmt.Errorf("%w: resource %q  wrong number of ports in load balancer service definition. expected %d, got %d", errMetalLB, service.ObjectMeta.Name, expectedNumberOfPorts, len(ports))
 			}
 
 			portDefn := ports[0]
@@ -502,7 +504,7 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			serviceSelector := service.Spec.Selector
 			serviceName := serviceSelector[builder.AkashManifestServiceLabelName]
 			if len(serviceName) == 0 {
-				return fmt.Errorf("service name cannot be empty")
+				return fmt.Errorf("%w: service has empty selector, errMetalLB")
 			}
 
 			sharingKey := service.ObjectMeta.Annotations[metalLbAllowSharedIp]

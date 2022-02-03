@@ -35,6 +35,10 @@ import (
 	"github.com/ovrclk/akash/provider/operator/operator_common"
 )
 
+var (
+	errIPOperator = errors.New("ip operator failure")
+)
+
 type managedIp struct {
 	presentLease        mtypes.LeaseID
 	presentServiceName  string
@@ -526,7 +530,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 
 	if response.StatusCode != http.StatusOK {
 		op.log.Error("provider status API failed", "status", response.StatusCode)
-		return "", fmt.Errorf("provider status API returned status: %d", response.StatusCode)
+		return "", fmt.Errorf("%w: provider status API returned status: %d", errIPOperator, response.StatusCode)
 	}
 
 	statusData := struct {

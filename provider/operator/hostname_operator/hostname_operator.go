@@ -218,10 +218,7 @@ func errorIsKubernetesResourceNotFound(failure error) bool {
 
 	errStr := failure.Error()
 	// unless the error indicates a resource was not found, no action
-	if strings.Contains(errStr, "not found") {
-		return true
-	}
-	return false
+	return strings.Contains(errStr, "not found")
 }
 
 func (op *hostnameOperator) recordEventError(ev ctypes.HostnameResourceEvent, failure error) {

@@ -38,7 +38,7 @@ func NewOperatorHttp() (OperatorHttp, error) {
 		_, _ = io.WriteString(rw, "OK")
 	})
 
-	akashVersion :=	utils.NewAkashVersionInfo()
+	akashVersion := utils.NewAkashVersionInfo()
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
 	err := enc.Encode(akashVersion)

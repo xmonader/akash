@@ -368,7 +368,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						if to.Global && len(to.IP) != 0 {
 							_, exists := sdl.Endpoints[to.IP]
 							if !exists {
-								return nil, fmt.Errorf("unknown endpoint %q", to.IP)
+								return nil, fmt.Errorf("%w: unknown endpoint %q", errSDLInvalid, to.IP)
 							}
 
 							seqNo = ipEndpointNames[to.IP]

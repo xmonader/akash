@@ -419,10 +419,8 @@ func createAddressHandler(log log.Logger, providerAddr sdk.Address) http.Handler
 
 type versionInfo struct {
 	Akash utils.AkashVersionInfo `json:"akash"`
-	Kube  *kubeVersion.Info `json:"kube"`
+	Kube  *kubeVersion.Info      `json:"kube"`
 }
-
-
 
 func createVersionHandler(log log.Logger, pclient provider.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -434,7 +432,7 @@ func createVersionHandler(log log.Logger, pclient provider.Client) http.HandlerF
 
 		writeJSON(log, w, versionInfo{
 			Akash: utils.NewAkashVersionInfo(),
-			Kube: kube,
+			Kube:  kube,
 		})
 	}
 }

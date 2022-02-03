@@ -16,7 +16,8 @@ import (
 )
 
 var (
-	errNotImplemented = errors.New("not implemented")
+	errNotImplemented   = errors.New("not implemented")
+	errIPOperatorRemote = errors.New("ip operator remote error")
 )
 
 type IPOperatorClient interface {
@@ -224,5 +225,5 @@ func extractRemoteError(response *http.Response) error {
 		return ipoptypes.LookupError(body.Code)
 	}
 
-	return fmt.Errorf("status %d - %s", response.StatusCode, body.Error)
+	return fmt.Errorf("%w: http status %d - %s", errIPOperatorRemote, response.StatusCode, body.Error)
 }

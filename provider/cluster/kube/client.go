@@ -667,14 +667,6 @@ exposeCheckLoop:
 	return result, nil
 }
 
-func (c *client) countKubeCall(err error, name string) {
-	label := metricsutils.SuccessLabel
-	if err != nil {
-		label = metricsutils.FailLabel
-	}
-	kubeCallsCounter.WithLabelValues(name, label).Inc()
-}
-
 func (c *client) leaseExists(ctx context.Context, lid mtypes.LeaseID) error {
 	_, err := c.kc.CoreV1().Namespaces().Get(ctx, builder.LidNS(lid), metav1.GetOptions{})
 	label := metricsutils.SuccessLabel

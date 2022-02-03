@@ -123,7 +123,7 @@ func makeHostnameOperatorScaffold(t *testing.T) *hostnameOperatorScaffold {
 	}
 	l := testutil.Logger(t)
 
-	op := newHostnameOperator(l, client, hostnameOperatorConfig{
+	op, err := newHostnameOperator(l, client, hostnameOperatorConfig{
 		pruneInterval:      time.Hour,
 		webRefreshInterval: time.Second,
 		retryDelay:         time.Second,
@@ -133,6 +133,7 @@ func makeHostnameOperatorScaffold(t *testing.T) *hostnameOperatorScaffold {
 			EntryLimit:   19,
 			AgeLimit:     time.Hour,
 		})
+	require.NoError(t, err)
 
 	scaffold.op = op
 	return scaffold

@@ -7,6 +7,7 @@ import (
 	"github.com/ovrclk/akash/pkg/apis/akash.network/v2beta1"
 	"github.com/ovrclk/akash/provider/cluster/operator_clients"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
+	"github.com/ovrclk/akash/provider/gateway/utils"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"io/ioutil"
 	"net/http"
@@ -323,7 +324,7 @@ func TestRouteVersionOK(t *testing.T) {
 		version.BuildTags = "testTags"
 
 		status := versionInfo{
-			Akash: &akashVersionInfo{
+			Akash: utils.AkashVersionInfo{
 				Version:          "akashTest",
 				GitCommit:        "testCommit",
 				BuildTags:        "testTags",

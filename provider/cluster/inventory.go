@@ -360,7 +360,7 @@ func countPendingIPs(state *inventoryServiceState) uint {
 	return pending
 }
 
-func (is *inventoryService) handleRequest(ctx context.Context, req inventoryRequest, state *inventoryServiceState) {
+func (is *inventoryService) handleRequest(req inventoryRequest, state *inventoryServiceState) {
 	// convert the resources to the committed amount
 	resourcesToCommit := is.resourcesToCommit(req.resources)
 	// create new registration if capacity available
@@ -484,7 +484,7 @@ loop:
 			}
 
 		case req := <-reserveChLocal:
-			is.handleRequest(ctx, req, state)
+			is.handleRequest(req, state)
 
 		case req := <-is.lookupch:
 			// lookup registration
@@ -555,7 +555,7 @@ loop:
 			}
 
 			select {
-			case _ = <-is.readych:
+			case <-is.readych:
 				break
 			default:
 				is.log.Debug("inventory ready")
