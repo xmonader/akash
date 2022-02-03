@@ -54,8 +54,8 @@ func (ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) 
 	return nil, errNotImplemented
 }
 
-func NewIPOperatorClient(logger log.Logger) (IPOperatorClient, error) {
-	sda := clusterutil.NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp")
+func NewIPOperatorClient(logger log.Logger, endpoint *net.SRV) (IPOperatorClient, error) {
+	sda := clusterutil.NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp", endpoint)
 
 	dialer := net.Dialer{
 		Timeout:       requestTimeout,

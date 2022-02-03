@@ -79,7 +79,7 @@ var (
 	errMetalLB = errors.New("metal lb error")
 )
 
-func NewClient(configPath string, logger log.Logger) (Client, error) {
+func NewClient(configPath string, logger log.Logger, endpoint *net.SRV) (Client, error) {
 	config, err := clientcommon.OpenKubeConfig(configPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
@@ -125,7 +125,7 @@ func NewClient(configPath string, logger log.Logger) (Client, error) {
 		ForceAttemptHTTP2:      false,
 	}
 
-	sda := clusterutil.NewServiceDiscoveryAgent(logger, "monitoring", "controller", "metallb-system", "TCP")
+	sda := clusterutil.NewServiceDiscoveryAgent(logger, "monitoring", "controller", "metallb-system", "TCP", endpoint)
 
 	return &client{
 		sda:  sda,

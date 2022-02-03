@@ -101,6 +101,11 @@ const (
 	FlagEnableIPOperator                 = "ip-operator"
 )
 
+const (
+	serviceIPOperator = "ip-operator"
+	serviceHostnameOperator = "hostname-operator"
+)
+
 var (
 	errInvalidConfig = errors.New("Invalid configuration")
 )
@@ -321,6 +326,14 @@ func RunCmd() *cobra.Command {
 
 	cmd.Flags().Bool(FlagEnableIPOperator, false, "")
 	if err := viper.BindPFlag(FlagEnableIPOperator, cmd.Flags().Lookup(FlagEnableIPOperator)); err != nil {
+		return nil
+	}
+
+	if err := provider_flags.AddServiceEndpointFlag(cmd, serviceHostnameOperator); err != nil {
+		return nil
+	}
+
+	if err := provider_flags.AddServiceEndpointFlag(cmd, serviceIPOperator); err != nil {
 		return nil
 	}
 
@@ -628,13 +641,21 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	// This value can be nil, the operator is not mandatory
 	var ipOperatorClient operatorclients.IPOperatorClient
 	if enableIPOperator {
-		ipOperatorClient, err = operatorclients.NewIPOperatorClient(log)
+		endpoint, err := provider_flags.GetServiceEndpointFlagValue(log, serviceIPOperator)
+		if err != nil {
+			return err
+		}
+		ipOperatorClient, err = operatorclients.NewIPOperatorClient(log, endpoint)
 		if err != nil {
 			return err
 		}
 	}
 
-	hostnameOperatorClient := operatorclients.NewHostnameOperatorClient(log)
+	endpoint, err := provider_flags.GetServiceEndpointFlagValue(log, serviceHostnameOperator)
+	if err != nil {
+		return err
+	}
+	hostnameOperatorClient := operatorclients.NewHostnameOperatorClient(log, endpoint)
 
 	waitClients := make([]waiter.Waitable, 0)
 	waitClients = append(waitClients, hostnameOperatorClient)
@@ -701,7 +722,9 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 
 	err = group.Wait()
 	broadcaster.Close()
-	ipOperatorClient.Stop()
+	if ipOperatorClient != nil {
+		ipOperatorClient.Stop()
+	}
 	hostnameOperatorClient.Stop()
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, http.ErrServerClosed) {
 		return err

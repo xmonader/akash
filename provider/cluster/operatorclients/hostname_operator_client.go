@@ -28,8 +28,8 @@ type hostnameOperatorClient struct {
 	log        log.Logger
 }
 
-func NewHostnameOperatorClient(logger log.Logger) HostnameOperatorClient {
-	sda := clusterutil.NewServiceDiscoveryAgent(logger, "status", "akash-hostname-operator", "akash-services", "tcp")
+func NewHostnameOperatorClient(logger log.Logger, endpoint *net.SRV) HostnameOperatorClient {
+	sda := clusterutil.NewServiceDiscoveryAgent(logger, "status", "akash-hostname-operator", "akash-services", "tcp", endpoint)
 
 	dialer := net.Dialer{
 		Timeout:       requestTimeout,

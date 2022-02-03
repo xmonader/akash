@@ -13,6 +13,7 @@ var (
 	errInvalidLabelValue = errors.New("kube: invalid label value")
 )
 
+// TODO - move to provider/cluster/util since this is generic
 func RecoverLeaseIDFromLabels(labels map[string]string) (mtypes.LeaseID, error) {
 	dseqS, ok := labels[builder.AkashLeaseDSeqLabelName]
 	if !ok {

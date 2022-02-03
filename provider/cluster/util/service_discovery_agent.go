@@ -24,7 +24,12 @@ type ServiceDiscoveryAgent interface {
 	DiscoverNow()
 }
 
-func NewServiceDiscoveryAgent(logger log.Logger, portName, serviceName, namespace, protocol string) ServiceDiscoveryAgent {
+func NewServiceDiscoveryAgent(logger log.Logger, portName, serviceName, namespace, protocol string, endpoint *net.SRV) ServiceDiscoveryAgent {
+	// short circuit if a value is passed in, this is a convenience function for using manually specified values
+	if endpoint != nil {
+		return staticServiceDiscoveryAgent(*endpoint)
+	}
+
 	sda := &serviceDiscoveryAgent{
 		serviceName:     serviceName,
 		namespace:       namespace,
@@ -201,4 +206,12 @@ func (sda *serviceDiscoveryAgent) discover() ([]net.SRV, error) {
 	sda.log.Info("discovery success", "addrs", result, "portName", sda.portName, "protocol", sda.portProtocol, "service-name", sda.serviceName, "namespace", sda.namespace)
 
 	return result, nil
+}
+
+// A type that does nothing but return a result that is already existent
+type staticServiceDiscoveryAgent net.SRV
+func (staticServiceDiscoveryAgent) Stop() {}
+func (staticServiceDiscoveryAgent) DiscoverNow() {}
+func (ssda staticServiceDiscoveryAgent) GetAddress(ctx context.Context) (net.SRV, error){
+	return net.SRV(ssda), nil
 }

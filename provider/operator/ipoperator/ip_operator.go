@@ -35,6 +35,12 @@ import (
 	"github.com/ovrclk/akash/provider/operator/operatorcommon"
 )
 
+
+const (
+	serviceProvider = "provider"
+	serviceMetalLb = "metal-lb"
+)
+
 var (
 	errIPOperator = errors.New("ip operator failure")
 )
@@ -670,6 +676,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	}
 }
 
+
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
@@ -683,12 +690,18 @@ func doIPOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	mllbc, err := metallb.NewClient(configPath, logger)
+	metalLbEndpoint, err := provider_flags.GetServiceEndpointFlagValue(logger, serviceMetalLb)
+	mllbc, err := metallb.NewClient(configPath, logger, metalLbEndpoint)
 	if err != nil {
 		return err
 	}
 
-	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP")
+	providerEndpoint, err := provider_flags.GetServiceEndpointFlagValue(logger, serviceProvider)
+	if err != nil {
+		return err
+	}
+
+	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP", providerEndpoint)
 	logger.Info("clients", "kube", client, "metallb", mllbc)
 
 	op, err := newIPOperator(logger, client, operatorcommon.IgnoreListConfigFromViper(), mllbc, providerSda)
@@ -733,6 +746,14 @@ func Cmd() *cobra.Command {
 	}
 	operatorcommon.AddOperatorFlags(cmd, "0.0.0.0:8086")
 	operatorcommon.AddIgnoreListFlags(cmd)
+
+	if err := provider_flags.AddServiceEndpointFlag(cmd, serviceProvider); err != nil {
+		return nil
+	}
+
+	if err := provider_flags.AddServiceEndpointFlag(cmd, serviceMetalLb); err != nil {
+		return nil
+	}
 
 	return cmd
 }
