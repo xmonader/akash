@@ -2,8 +2,8 @@ package cluster
 
 import (
 	"context"
-	"github.com/ovrclk/akash/provider/cluster/operatorClients"
-	ipoptypes "github.com/ovrclk/akash/provider/operator/ipOperator/types"
+	"github.com/ovrclk/akash/provider/cluster/operatorclients"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ipoperator/types"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"testing"
@@ -135,7 +135,7 @@ func TestInventory_ClusterDeploymentNotDeployed(t *testing.T) {
 		donech,
 		subscriber,
 		clusterClient,
-		operatorClients.NullIPOperatorClient(), // This client is not used in this test
+		operatorclients.NullIPOperatorClient(), // This client is not used in this test
 		waiter.NewNullWaiter(),                 // Do not need to wait in test
 		deployments)
 	require.NoError(t, err)

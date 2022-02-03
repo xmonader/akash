@@ -1,4 +1,4 @@
-package operatorClients
+package operatorclients
 
 import (
 	"context"

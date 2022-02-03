@@ -1,4 +1,4 @@
-package hostnameOperator
+package hostnameoperator
 
 import (
 	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"

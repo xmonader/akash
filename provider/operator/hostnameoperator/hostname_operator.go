@@ -1,4 +1,4 @@
-package hostnameOperator
+package hostnameoperator
 
 import (
 	"bytes"
@@ -24,27 +24,27 @@ import (
 	"time"
 
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
-	"github.com/ovrclk/akash/provider/operator/operatorCommon"
+	"github.com/ovrclk/akash/provider/operator/operatorcommon"
 )
 
 var (
-	errExpectedResourceNotFound = fmt.Errorf("%w: resource not found", operatorCommon.ErrObservationStopped)
+	errExpectedResourceNotFound = fmt.Errorf("%w: resource not found", operatorcommon.ErrObservationStopped)
 )
 
 type hostnameOperator struct {
 	hostnames map[string]managedHostname
 
-	leasesIgnored operatorCommon.IgnoreList
+	leasesIgnored operatorcommon.IgnoreList
 
 	client cluster.Client
 
 	log log.Logger
 
 	cfg    hostnameOperatorConfig
-	server operatorCommon.OperatorHTTP
+	server operatorcommon.OperatorHTTP
 
-	flagHostnamesData  operatorCommon.PrepareFlagFn
-	flagIgnoreListData operatorCommon.PrepareFlagFn
+	flagHostnamesData  operatorcommon.PrepareFlagFn
+	flagIgnoreListData operatorcommon.PrepareFlagFn
 }
 
 func (op *hostnameOperator) run(parentCtx context.Context) error {
@@ -131,7 +131,7 @@ loop:
 
 		case ev, ok := <-events:
 			if !ok {
-				exitError = operatorCommon.ErrObservationStopped
+				exitError = operatorcommon.ErrObservationStopped
 				break loop
 			}
 			err = op.applyEvent(ctx, ev)
@@ -155,12 +155,12 @@ loop:
 	return exitError
 }
 
-func (op *hostnameOperator) prepareIgnoreListData(pd operatorCommon.PreparedResult) error {
+func (op *hostnameOperator) prepareIgnoreListData(pd operatorcommon.PreparedResult) error {
 	op.log.Debug("preparing ignore-list")
 	return op.leasesIgnored.Prepare(pd)
 }
 
-func (op *hostnameOperator) prepareHostnamesData(pd operatorCommon.PreparedResult) error {
+func (op *hostnameOperator) prepareHostnamesData(pd operatorcommon.PreparedResult) error {
 	op.log.Debug("preparing managed-hostnames")
 	buf := &bytes.Buffer{}
 	data := make(map[string]interface{})
@@ -254,7 +254,7 @@ func (op *hostnameOperator) applyEvent(ctx context.Context, ev ctypes.HostnameRe
 		op.recordEventError(ev, err)
 		return err
 	default:
-		return fmt.Errorf("%w: unknown event type %v", operatorCommon.ErrObservationStopped, ev.GetEventType())
+		return fmt.Errorf("%w: unknown event type %v", operatorcommon.ErrObservationStopped, ev.GetEventType())
 	}
 
 }
@@ -418,8 +418,8 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 	return err
 }
 
-func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operatorCommon.IgnoreListConfig) (*hostnameOperator, error) {
-	opHttp, err := operatorCommon.NewOperatorHTTP()
+func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operatorcommon.IgnoreListConfig) (*hostnameOperator, error) {
+	opHttp, err := operatorcommon.NewOperatorHTTP()
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +429,7 @@ func newHostnameOperator(logger log.Logger, client cluster.Client, config hostna
 		log:           logger,
 		cfg:           config,
 		server:        opHttp,
-		leasesIgnored: operatorCommon.NewIgnoreList(ilc),
+		leasesIgnored: operatorcommon.NewIgnoreList(ilc),
 	}
 
 	op.flagIgnoreListData = op.server.AddPreparedEndpoint("/ignore-list", op.prepareIgnoreListData)
@@ -449,7 +449,7 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		retryDelay:         viper.GetDuration(provider_flags.FlagRetryDelay),
 	}
 
-	logger := operatorCommon.OpenLogger().With("op", "hostname")
+	logger := operatorcommon.OpenLogger().With("op", "hostname")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -458,7 +458,7 @@ func doHostnameOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	op, err := newHostnameOperator(logger, client, config, operatorCommon.IgnoreListConfigFromViper())
+	op, err := newHostnameOperator(logger, client, config, operatorcommon.IgnoreListConfigFromViper())
 	if err != nil {
 		return err
 	}
@@ -499,8 +499,8 @@ func HostnameOperatorCmd() *cobra.Command {
 			return doHostnameOperator(cmd)
 		},
 	}
-	operatorCommon.AddOperatorFlags(cmd, "0.0.0.0:8085")
-	operatorCommon.AddIgnoreListFlags(cmd)
+	operatorcommon.AddOperatorFlags(cmd, "0.0.0.0:8085")
+	operatorcommon.AddIgnoreListFlags(cmd)
 
 	return cmd
 }

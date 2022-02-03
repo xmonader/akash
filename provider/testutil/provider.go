@@ -3,7 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
-	"github.com/ovrclk/akash/provider/operator/hostnameOperator"
+	"github.com/ovrclk/akash/provider/operator/hostnameoperator"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	cosmosclient "github.com/cosmos/cosmos-sdk/client"
@@ -162,7 +162,7 @@ func RunProviderJWTServer(ctx context.Context, clientCtx cosmosclient.Context, f
 
 func RunLocalHostnameOperator(ctx context.Context, clientCtx cosmosclient.Context) (sdktest.BufferWriter, error) {
 	takeCmdLock()
-	cmd := hostnameOperator.HostnameOperatorCmd()
+	cmd := hostnameoperator.HostnameOperatorCmd()
 	releaseCmdLock()
 	return testutilcli.ExecTestCLICmd(ctx, clientCtx, cmd)
 }

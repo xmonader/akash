@@ -1,4 +1,4 @@
-package operatorCommon
+package operatorcommon
 
 import (
 	"net/http"

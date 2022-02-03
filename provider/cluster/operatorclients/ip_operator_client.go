@@ -1,4 +1,4 @@
-package operatorClients
+package operatorclients
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
-	ipoptypes "github.com/ovrclk/akash/provider/operator/ipOperator/types"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ipoperator/types"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/tendermint/tendermint/libs/log"
 	"io"

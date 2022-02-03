@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ovrclk/akash/provider/cluster/operatorClients"
-	ipoptypes "github.com/ovrclk/akash/provider/operator/ipOperator/types"
+	"github.com/ovrclk/akash/provider/cluster/operatorclients"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ipoperator/types"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	"sync/atomic"
 	"time"
@@ -80,7 +80,7 @@ type inventoryService struct {
 
 	availableExternalPorts uint
 
-	ipOperator operatorClients.IPOperatorClient
+	ipOperator operatorclients.IPOperatorClient
 
 	waiter waiter.OperatorWaiter
 }
@@ -91,7 +91,7 @@ func newInventoryService(
 	donech <-chan struct{},
 	sub pubsub.Subscriber,
 	client Client,
-	ipOperatorClient operatorClients.IPOperatorClient,
+	ipOperatorClient operatorclients.IPOperatorClient,
 	waiter waiter.OperatorWaiter,
 	deployments []ctypes.Deployment,
 ) (*inventoryService, error) {
