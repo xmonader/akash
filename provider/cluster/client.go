@@ -426,7 +426,7 @@ func (c *nullClient) Deploy(ctx context.Context, lid mtypes.LeaseID, mgroup *man
 	return nil
 }
 
-func (_ *nullClient) ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error) {
+func (*nullClient) ForwardedPortStatus(context.Context, mtypes.LeaseID) (map[string][]ctypes.ForwardedPortStatus, error) {
 	return nil, errNotImplemented
 }
 

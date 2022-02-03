@@ -354,12 +354,12 @@ func makeInventoryScaffold(t *testing.T, leaseQty uint, inventoryCall bool, node
 	return scaffold
 }
 
-func makeGroupForInventoryTest(sharedHttp, nodePort, leasedIP bool) manifest.Group {
+func makeGroupForInventoryTest(sharedHTTP, nodePort, leasedIP bool) manifest.Group {
 	groupServices := make([]manifest.Service, 1)
 
 	serviceEndpoints := make([]types.Endpoint, 0)
 	seqno := uint32(0)
-	if sharedHttp {
+	if sharedHTTP {
 		serviceEndpoint := types.Endpoint{
 			Kind:           types.Endpoint_SHARED_HTTP,
 			SequenceNumber: seqno,

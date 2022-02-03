@@ -97,7 +97,7 @@ const (
 	FlagProviderConfig                   = "provider-config"
 	FlagCachedResultMaxAge               = "cached-result-max-age"
 	FlagRPCQueryTimeout                  = "rpc-query-timeout"
-	FlagBidPriceIpScale                  = "bid-price-ip-scale"
+	FlagBidPriceIPScale                  = "bid-price-ip-scale"
 	FlagEnableIPOperator                 = "ip-operator"
 )
 
@@ -167,8 +167,8 @@ func RunCmd() *cobra.Command {
 		return nil
 	}
 
-	cmd.Flags().String(FlagBidPriceIpScale, "0", "leased ip pricing scale in uakt")
-	if err := viper.BindPFlag(FlagBidPriceIpScale, cmd.Flags().Lookup(FlagBidPriceIpScale)); err != nil {
+	cmd.Flags().String(FlagBidPriceIPScale, "0", "leased ip pricing scale in uakt")
+	if err := viper.BindPFlag(FlagBidPriceIPScale, cmd.Flags().Lookup(FlagBidPriceIPScale)); err != nil {
 		return nil
 	}
 
@@ -391,7 +391,7 @@ func createBidPricingStrategy(strategy string) (bidengine.BidPricingStrategy, er
 			return nil, err
 		}
 
-		ipScale, err := strToBidPriceScale(viper.GetString(FlagBidPriceIpScale))
+		ipScale, err := strToBidPriceScale(viper.GetString(FlagBidPriceIPScale))
 		if err != nil {
 			return nil, err
 		}

@@ -162,7 +162,7 @@ func RunProviderJWTServer(ctx context.Context, clientCtx cosmosclient.Context, f
 
 func RunLocalHostnameOperator(ctx context.Context, clientCtx cosmosclient.Context) (sdktest.BufferWriter, error) {
 	takeCmdLock()
-	cmd := hostnameoperator.HostnameOperatorCmd()
+	cmd := hostnameoperator.Cmd()
 	releaseCmdLock()
 	return testutilcli.ExecTestCLICmd(ctx, clientCtx, cmd)
 }

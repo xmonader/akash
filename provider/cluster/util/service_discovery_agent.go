@@ -179,6 +179,7 @@ func (sda *serviceDiscoveryAgent) GetAddress(ctx context.Context) (net.SRV, erro
 	}
 	// Ignore priority & weight, just make a random selection. This generally has a length
 	// of 1
+	// nolint:gosec
 	addrI := rand.Int31n(int32(len(addrs)))
 	addr := addrs[addrI]
 

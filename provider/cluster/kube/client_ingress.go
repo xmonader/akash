@@ -3,7 +3,7 @@ package kube
 import (
 	"context"
 	"fmt"
-	"github.com/ovrclk/akash/provider/cluster/kube/clientCommon"
+	"github.com/ovrclk/akash/provider/cluster/kube/clientcommon"
 	"math"
 	"strconv"
 	"strings"
@@ -194,7 +194,7 @@ func (c *client) GetHostnameDeploymentConnections(ctx context.Context) ([]ctypes
 		func(obj runtime.Object) error {
 
 			ingress := obj.(*netv1.Ingress)
-			ingressLeaseID, err := clientCommon.RecoverLeaseIDFromLabels(ingress.Labels)
+			ingressLeaseID, err := clientcommon.RecoverLeaseIDFromLabels(ingress.Labels)
 			if err != nil {
 				return err
 			}

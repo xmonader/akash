@@ -6,7 +6,7 @@ import (
 	"fmt"
 	manifest "github.com/ovrclk/akash/manifest/v2beta1"
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
-	"github.com/ovrclk/akash/provider/cluster/kube/clientCommon"
+	"github.com/ovrclk/akash/provider/cluster/kube/clientcommon"
 	"github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
@@ -34,7 +34,7 @@ import (
 const (
 	akashServiceTarget   = "akash.network/service-target"
 	akashMetalLB         = "metal-lb"
-	metalLbAllowSharedIp = "metallb.universe.tf/allow-shared-ip"
+	metalLbAllowSharedIP = "metallb.universe.tf/allow-shared-ip"
 )
 
 var (
@@ -80,7 +80,7 @@ var (
 )
 
 func NewClient(configPath string, logger log.Logger) (Client, error) {
-	config, err := clientCommon.OpenKubeConfig(configPath, logger)
+	config, err := clientcommon.OpenKubeConfig(configPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
 	}
@@ -333,7 +333,7 @@ func (c *client) GetIPAddressStatusForLease(ctx context.Context, leaseID mtypes.
 				serviceName:  selectedServiceName,
 				externalPort: uint32(port.Port),
 				port:         uint32(port.TargetPort.IntValue()),
-				sharingKey:   service.ObjectMeta.Annotations[metalLbAllowSharedIp],
+				sharingKey:   service.ObjectMeta.Annotations[metalLbAllowSharedIP],
 				protocol:     proto,
 			})
 
@@ -400,7 +400,7 @@ func (c *client) CreateIPPassthrough(ctx context.Context, leaseID mtypes.LeaseID
 	}
 	// TODO - specify metallb.universe.tf/address-pool annotation if configured to do so only that pool is used at any time
 	annotations := map[string]string{
-		metalLbAllowSharedIp: directive.SharingKey,
+		metalLbAllowSharedIP: directive.SharingKey,
 	}
 
 	port := corev1.ServicePort{
@@ -490,7 +490,7 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			proto := portDefn.Protocol
 			port := portDefn.Port
 
-			leaseID, err := clientCommon.RecoverLeaseIDFromLabels(service.Labels)
+			leaseID, err := clientcommon.RecoverLeaseIDFromLabels(service.Labels)
 			if err != nil {
 				return fmt.Errorf("%w: service %q has invalid leease labels %v", err, service.ObjectMeta.Name, service.Labels)
 			}
@@ -507,7 +507,7 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 				return fmt.Errorf("%w: service has empty selector", errMetalLB)
 			}
 
-			sharingKey := service.ObjectMeta.Annotations[metalLbAllowSharedIp]
+			sharingKey := service.ObjectMeta.Annotations[metalLbAllowSharedIP]
 
 			v := ipPassthrough{
 				lID:          leaseID,

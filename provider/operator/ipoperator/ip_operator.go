@@ -39,7 +39,7 @@ var (
 	errIPOperator = errors.New("ip operator failure")
 )
 
-type managedIp struct {
+type mnagedIP struct {
 	presentLease        mtypes.LeaseID
 	presentServiceName  string
 	lastEvent           v1beta2.IPResourceEvent
@@ -50,7 +50,7 @@ type managedIp struct {
 }
 
 type ipOperator struct {
-	state             map[string]managedIp
+	state             map[string]mnagedIP
 	client            cluster.Client
 	log               log.Logger
 	server            operatorcommon.OperatorHTTP
@@ -82,7 +82,7 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	}
 	op.log.Info("associated provider ", "addr", op.providerAddr)
 
-	op.state = make(map[string]managedIp)
+	op.state = make(map[string]mnagedIP)
 	op.log.Info("fetching existing IP passthroughs")
 	entries, err := op.mllbc.GetIPPassthroughs(parentCtx)
 	if err != nil {
@@ -91,7 +91,7 @@ func (op *ipOperator) monitorUntilError(parentCtx context.Context) error {
 	startupTime := time.Now()
 	for _, ipPassThrough := range entries {
 		k := getStateKey(ipPassThrough.GetLeaseID(), ipPassThrough.GetSharingKey(), ipPassThrough.GetExternalPort())
-		op.state[k] = managedIp{
+		op.state[k] = mnagedIP{
 			presentLease:        ipPassThrough.GetLeaseID(),
 			presentServiceName:  ipPassThrough.GetServiceName(),
 			lastEvent:           nil,
@@ -357,8 +357,8 @@ func (op *ipOperator) prepareUsage(pd operatorcommon.PreparedResult) error {
 
 func (op *ipOperator) prepareState(pd operatorcommon.PreparedResult) error {
 	results := make(map[string][]interface{})
-	for _, managedIpEntry := range op.state {
-		leaseID := managedIpEntry.presentLease
+	for _, mnagedIPEntry := range op.state {
+		leaseID := mnagedIPEntry.presentLease
 
 		result := struct {
 			LastChangeTime string         `json:"last-event-time,omitempty"`
@@ -371,11 +371,11 @@ func (op *ipOperator) prepareState(pd operatorcommon.PreparedResult) error {
 		}{
 			LeaseID:        leaseID,
 			Namespace:      clusterutil.LeaseIDToNamespace(leaseID),
-			Port:           managedIpEntry.presentPort,
-			ExternalPort:   managedIpEntry.presentExternalPort,
-			ServiceName:    managedIpEntry.presentServiceName,
-			SharingKey:     managedIpEntry.presentSharingKey,
-			LastChangeTime: managedIpEntry.lastChangedAt.UTC().String(),
+			Port:           mnagedIPEntry.presentPort,
+			ExternalPort:   mnagedIPEntry.presentExternalPort,
+			ServiceName:    mnagedIPEntry.presentServiceName,
+			SharingKey:     mnagedIPEntry.presentSharingKey,
+			LastChangeTime: mnagedIPEntry.lastChangedAt.UTC().String(),
 		}
 
 		entryList := results[leaseID.String()]
@@ -394,7 +394,7 @@ func (op *ipOperator) prepareState(pd operatorcommon.PreparedResult) error {
 	return nil
 }
 
-func handleHttpError(op *ipOperator, rw http.ResponseWriter, req *http.Request, err error, status int) {
+func handleHTTPError(op *ipOperator, rw http.ResponseWriter, req *http.Request, err error, status int) {
 	op.log.Error("http request processing failed", "method", req.Method, "path", req.URL.Path, "err", err)
 	rw.WriteHeader(status)
 
@@ -444,7 +444,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 			ServerName:                  "",
 			ClientAuth:                  0,
 			ClientCAs:                   nil,
-			InsecureSkipVerify:          true,
+			InsecureSkipVerify:          true, // nolint:gosec
 			CipherSuites:                nil,
 			PreferServerCipherSuites:    false,
 			SessionTicketsDisabled:      false,
@@ -495,8 +495,9 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		return "", err
 	}
 
-	statusUrl := fmt.Sprintf("https://%s:%d/address", addr.Target, addr.Port)
-	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusUrl, nil)
+	// TODO - use the rest gateway client to get this? Should be MUCH simpler
+	statusURL := fmt.Sprintf("https://%s:%d/address", addr.Target, addr.Port)
+	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -550,13 +551,13 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	return providerAddr, nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc operatorcommon.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator, error) {
+func newIPOperator(logger log.Logger, client cluster.Client, ilc operatorcommon.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator, error) {
 	opHTTP, err := operatorcommon.NewOperatorHTTP()
 	if err != nil {
 		return nil, err
 	}
 	retval := &ipOperator{
-		state:         make(map[string]managedIp),
+		state:         make(map[string]mnagedIP),
 		client:        client,
 		log:           logger,
 		server:        opHTTP,
@@ -641,7 +642,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	ipStatus, err := op.mllbc.GetIPAddressStatusForLease(req.Context(), leaseID)
 	if err != nil {
 		op.log.Error("Could not get IP address status", "lease-id", leaseID, "error", err)
-		handleHttpError(op, rw, req, err, http.StatusInternalServerError)
+		handleHTTPError(op, rw, req, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -690,7 +691,7 @@ func doIPOperator(cmd *cobra.Command) error {
 	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP")
 	logger.Info("clients", "kube", client, "metallb", mllbc)
 
-	op, err := newIpOperator(logger, client, operatorcommon.IgnoreListConfigFromViper(), mllbc, providerSda)
+	op, err := newIPOperator(logger, client, operatorcommon.IgnoreListConfigFromViper(), mllbc, providerSda)
 	if err != nil {
 		return err
 	}
@@ -721,7 +722,7 @@ func doIPOperator(cmd *cobra.Command) error {
 	return nil
 }
 
-func IPOperatorCmd() *cobra.Command {
+func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "ip-operator",
 		Short:        "kubernetes operator interfacing with Metal LB",

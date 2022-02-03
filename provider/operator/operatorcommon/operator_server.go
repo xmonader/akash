@@ -22,13 +22,13 @@ type OperatorHTTP interface {
 	PrepareAll() error
 }
 
-type operatorHttp struct {
+type operatorHTTP struct {
 	router  *mux.Router
 	results map[string]preparedEntry
 }
 
 func NewOperatorHTTP() (OperatorHTTP, error) {
-	retval := &operatorHttp{
+	retval := &operatorHTTP{
 		router:  mux.NewRouter(),
 		results: make(map[string]preparedEntry),
 	}
@@ -59,11 +59,11 @@ func NewOperatorHTTP() (OperatorHTTP, error) {
 	return retval, nil
 }
 
-func (opHttp *operatorHttp) GetRouter() *mux.Router {
+func (opHttp *operatorHTTP) GetRouter() *mux.Router {
 	return opHttp.router
 }
 
-func (opHttp *operatorHttp) AddPreparedEndpoint(path string, prepare PrepareFn) PrepareFlagFn {
+func (opHttp *operatorHTTP) AddPreparedEndpoint(path string, prepare PrepareFn) PrepareFlagFn {
 	_, exists := opHttp.results[path]
 	if exists {
 		panic("prepared result exists for path: " + path)
@@ -82,7 +82,7 @@ func (opHttp *operatorHttp) AddPreparedEndpoint(path string, prepare PrepareFn) 
 	return entry.data.Flag
 }
 
-func (opHttp *operatorHttp) PrepareAll() error {
+func (opHttp *operatorHTTP) PrepareAll() error {
 	for _, entry := range opHttp.results {
 		if !entry.data.needsPrepare {
 			continue

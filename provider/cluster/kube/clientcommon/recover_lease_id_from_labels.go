@@ -1,4 +1,4 @@
-package clientCommon
+package clientcommon
 
 import (
 	"errors"

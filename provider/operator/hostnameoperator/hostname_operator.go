@@ -419,7 +419,7 @@ func (op *hostnameOperator) applyAddOrUpdateEvent(ctx context.Context, ev ctypes
 }
 
 func newHostnameOperator(logger log.Logger, client cluster.Client, config hostnameOperatorConfig, ilc operatorcommon.IgnoreListConfig) (*hostnameOperator, error) {
-	opHttp, err := operatorcommon.NewOperatorHTTP()
+	opHTTP, err := operatorcommon.NewOperatorHTTP()
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +428,7 @@ func newHostnameOperator(logger log.Logger, client cluster.Client, config hostna
 		client:        client,
 		log:           logger,
 		cfg:           config,
-		server:        opHttp,
+		server:        opHTTP,
 		leasesIgnored: operatorcommon.NewIgnoreList(ilc),
 	}
 
@@ -490,7 +490,7 @@ func doHostnameOperator(cmd *cobra.Command) error {
 	return nil
 }
 
-func HostnameOperatorCmd() *cobra.Command {
+func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "hostname-operator",
 		Short:        "kubernetes operator interfacing with k8s nginx ingress",
