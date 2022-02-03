@@ -1,4 +1,4 @@
-package ip_operator
+package ipOperator
 
 import (
 	"bytes"
@@ -31,8 +31,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
-	"github.com/ovrclk/akash/provider/operator/operator_common"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ipOperator/types"
+	"github.com/ovrclk/akash/provider/operator/operatorCommon"
 )
 
 var (
@@ -53,11 +53,11 @@ type ipOperator struct {
 	state             map[string]managedIp
 	client            cluster.Client
 	log               log.Logger
-	server            operator_common.OperatorHttp
-	leasesIgnored     operator_common.IgnoreList
-	flagState         operator_common.PrepareFlagFn
-	flagIgnoredLeases operator_common.PrepareFlagFn
-	flagUsage         operator_common.PrepareFlagFn
+	server            operatorCommon.OperatorHTTP
+	leasesIgnored     operatorCommon.IgnoreList
+	flagState         operatorCommon.PrepareFlagFn
+	flagIgnoredLeases operatorCommon.PrepareFlagFn
+	flagUsage         operatorCommon.PrepareFlagFn
 	providerAddr      string
 
 	available uint
@@ -140,7 +140,7 @@ loop:
 
 		case ev, ok := <-events:
 			if !ok {
-				exitError = operator_common.ErrObservationStopped
+				exitError = operatorCommon.ErrObservationStopped
 				break loop
 			}
 			err = op.applyEvent(parentCtx, ev)
@@ -243,7 +243,7 @@ func (op *ipOperator) applyEvent(ctx context.Context, ev v1beta2.IPResourceEvent
 		op.recordEventError(ev, err)
 		return err
 	default:
-		return fmt.Errorf("%w: unknown event type %v", operator_common.ErrObservationStopped, ev.GetEventType())
+		return fmt.Errorf("%w: unknown event type %v", operatorCommon.ErrObservationStopped, ev.GetEventType())
 	}
 }
 
@@ -335,11 +335,7 @@ func (op *ipOperator) applyAddOrUpdateEvent(ctx context.Context, ev v1beta2.IPRe
 	return nil
 }
 
-func (op *ipOperator) webRouter() http.Handler {
-	return op.server.GetRouter()
-}
-
-func (op *ipOperator) prepareUsage(pd operator_common.PreparedResult) error {
+func (op *ipOperator) prepareUsage(pd operatorCommon.PreparedResult) error {
 	op.dataLock.Lock()
 	defer op.dataLock.Unlock()
 	value := ipoptypes.IPAddressUsage{
@@ -359,7 +355,7 @@ func (op *ipOperator) prepareUsage(pd operator_common.PreparedResult) error {
 	return nil
 }
 
-func (op *ipOperator) prepareState(pd operator_common.PreparedResult) error {
+func (op *ipOperator) prepareState(pd operatorCommon.PreparedResult) error {
 	results := make(map[string][]interface{})
 	for _, managedIpEntry := range op.state {
 		leaseID := managedIpEntry.presentLease
@@ -554,8 +550,8 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	return providerAddr, nil
 }
 
-func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator, error) {
-	opHttp, err := operator_common.NewOperatorHttp()
+func newIpOperator(logger log.Logger, client cluster.Client, ilc operatorCommon.IgnoreListConfig, mllbc metallb.Client, providerSda clusterutil.ServiceDiscoveryAgent) (*ipOperator, error) {
+	opHttp, err := operatorCommon.NewOperatorHTTP()
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +560,7 @@ func newIpOperator(logger log.Logger, client cluster.Client, ilc operator_common
 		client:        client,
 		log:           logger,
 		server:        opHttp,
-		leasesIgnored: operator_common.NewIgnoreList(ilc),
+		leasesIgnored: operatorCommon.NewIgnoreList(ilc),
 		mllbc:         mllbc,
 		dataLock:      &sync.Mutex{},
 		providerSda:   providerSda,
@@ -676,7 +672,7 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
-	logger := operator_common.OpenLogger().With("operator", "ip")
+	logger := operatorCommon.OpenLogger().With("operator", "ip")
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
@@ -694,11 +690,11 @@ func doIPOperator(cmd *cobra.Command) error {
 	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP")
 	logger.Info("clients", "kube", client, "metallb", mllbc)
 
-	op, err := newIpOperator(logger, client, operator_common.IgnoreListConfigFromViper(), mllbc, providerSda)
+	op, err := newIpOperator(logger, client, operatorCommon.IgnoreListConfigFromViper(), mllbc, providerSda)
 	if err != nil {
 		return err
 	}
-	router := op.webRouter()
+	router := op.server.GetRouter()
 	group, ctx := errgroup.WithContext(cmd.Context())
 
 	group.Go(func() error {
@@ -734,8 +730,8 @@ func IPOperatorCmd() *cobra.Command {
 			return doIPOperator(cmd)
 		},
 	}
-	operator_common.AddOperatorFlags(cmd, "0.0.0.0:8086")
-	operator_common.AddIgnoreListFlags(cmd)
+	operatorCommon.AddOperatorFlags(cmd, "0.0.0.0:8086")
+	operatorCommon.AddIgnoreListFlags(cmd)
 
 	return cmd
 }

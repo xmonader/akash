@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/cluster/operatorClients"
 	"github.com/ovrclk/akash/provider/gateway/utils"
-	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ipOperator/types"
 	"io"
 	"net/http"
 	"strconv"
@@ -75,7 +75,7 @@ type wsStreamConfig struct {
 	client    cluster.ReadClient
 }
 
-func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ipopclient operator_clients.IPOperatorClient, ctxConfig map[interface{}]interface{}) *mux.Router {
+func newRouter(log log.Logger, addr sdk.Address, pclient provider.Client, ipopclient operatorClients.IPOperatorClient, ctxConfig map[interface{}]interface{}) *mux.Router {
 
 	router := mux.NewRouter()
 
@@ -539,7 +539,7 @@ func leaseKubeEventsHandler(log log.Logger, cclient cluster.ReadClient) http.Han
 	}
 }
 
-func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient operator_clients.IPOperatorClient, clusterSettings map[interface{}]interface{}) http.HandlerFunc {
+func leaseStatusHandler(log log.Logger, cclient cluster.ReadClient, ipopclient operatorClients.IPOperatorClient, clusterSettings map[interface{}]interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := util.ApplyToContext(req.Context(), clusterSettings)
 

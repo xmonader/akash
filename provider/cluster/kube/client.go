@@ -31,7 +31,7 @@ import (
 	dtypes "github.com/ovrclk/akash/x/deployment/types/v1beta2"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 
-	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
+	"github.com/ovrclk/akash/provider/cluster/kube/clientCommon"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 
@@ -76,7 +76,7 @@ func (c *client) String() string {
 // NewClient returns new Kubernetes Client instance with provided logger, host and ns. Returns error incase of failure
 // configPath may be the empty string
 func NewClient(log log.Logger, ns string, configPath string) (Client, error) {
-	config, err := client_common.OpenKubeConfig(configPath, log)
+	config, err := clientCommon.OpenKubeConfig(configPath, log)
 	if err != nil {
 		return nil, errors.Wrap(err, "kube: error building config flags")
 	}

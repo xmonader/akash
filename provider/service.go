@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankTypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/cluster/operatorClients"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	"github.com/pkg/errors"
 
@@ -58,7 +58,7 @@ func NewService(ctx context.Context,
 	session session.Session,
 	bus pubsub.Bus,
 	cclient cluster.Client,
-	ipOperatorClient operator_clients.IPOperatorClient,
+	ipOperatorClient operatorClients.IPOperatorClient,
 	waiter waiter.OperatorWaiter,
 	cfg Config) (Service, error) {
 	ctx, cancel := context.WithCancel(ctx)

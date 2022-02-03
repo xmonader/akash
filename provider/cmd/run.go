@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/cluster/operatorClients"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	"io"
 	"net/http"
@@ -626,15 +626,15 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	config.CachedResultMaxAge = cachedResultMaxAge
 
 	// This value can be nil, the operator is not mandatory
-	var ipOperatorClient operator_clients.IPOperatorClient
+	var ipOperatorClient operatorClients.IPOperatorClient
 	if enableIPOperator {
-		ipOperatorClient, err = operator_clients.NewIPOperatorClient(log)
+		ipOperatorClient, err = operatorClients.NewIPOperatorClient(log)
 		if err != nil {
 			return err
 		}
 	}
 
-	hostnameOperatorClient := operator_clients.NewHostnameOperatorClient(log)
+	hostnameOperatorClient := operatorClients.NewHostnameOperatorClient(log)
 
 	waitClients := make([]waiter.Waitable, 0)
 	waitClients = append(waitClients, hostnameOperatorClient)

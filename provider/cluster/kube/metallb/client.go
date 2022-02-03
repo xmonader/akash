@@ -6,7 +6,7 @@ import (
 	"fmt"
 	manifest "github.com/ovrclk/akash/manifest/v2beta1"
 	"github.com/ovrclk/akash/provider/cluster/kube/builder"
-	"github.com/ovrclk/akash/provider/cluster/kube/client_common"
+	"github.com/ovrclk/akash/provider/cluster/kube/clientCommon"
 	"github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
@@ -80,7 +80,7 @@ var (
 )
 
 func NewClient(configPath string, logger log.Logger) (Client, error) {
-	config, err := client_common.OpenKubeConfig(configPath, logger)
+	config, err := clientCommon.OpenKubeConfig(configPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
 	}
@@ -490,7 +490,7 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			proto := portDefn.Protocol
 			port := portDefn.Port
 
-			leaseID, err := client_common.RecoverLeaseIdFromLabels(service.Labels)
+			leaseID, err := clientCommon.RecoverLeaseIDFromLabels(service.Labels)
 			if err != nil {
 				return fmt.Errorf("%w: service %q has invalid leease labels %v", err, service.ObjectMeta.Name, service.Labels)
 			}
@@ -504,7 +504,7 @@ func (c *client) GetIPPassthroughs(ctx context.Context) ([]v1beta2.IPPassthrough
 			serviceSelector := service.Spec.Selector
 			serviceName := serviceSelector[builder.AkashManifestServiceLabelName]
 			if len(serviceName) == 0 {
-				return fmt.Errorf("%w: service has empty selector, errMetalLB")
+				return fmt.Errorf("%w: service has empty selector", errMetalLB)
 			}
 
 			sharingKey := service.ObjectMeta.Annotations[metalLbAllowSharedIp]

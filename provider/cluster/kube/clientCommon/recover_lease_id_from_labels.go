@@ -1,4 +1,4 @@
-package client_common
+package clientCommon
 
 import (
 	"errors"
@@ -13,7 +13,7 @@ var (
 	errInvalidLabelValue = errors.New("kube: invalid label value")
 )
 
-func RecoverLeaseIdFromLabels(labels map[string]string) (mtypes.LeaseID, error) {
+func RecoverLeaseIDFromLabels(labels map[string]string) (mtypes.LeaseID, error) {
 	dseqS, ok := labels[builder.AkashLeaseDSeqLabelName]
 	if !ok {
 		return mtypes.LeaseID{}, fmt.Errorf("%w: %q", errMissingLabel, builder.AkashLeaseDSeqLabelName)

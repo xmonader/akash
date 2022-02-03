@@ -1,4 +1,4 @@
-package operator_common
+package operatorCommon
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ type preparedEntry struct {
 	prepare PrepareFn
 }
 
-type OperatorHttp interface {
+type OperatorHTTP interface {
 	AddPreparedEndpoint(path string, prepare PrepareFn) PrepareFlagFn
 	GetRouter() *mux.Router
 	PrepareAll() error
@@ -27,7 +27,7 @@ type operatorHttp struct {
 	results map[string]preparedEntry
 }
 
-func NewOperatorHttp() (OperatorHttp, error) {
+func NewOperatorHTTP() (OperatorHTTP, error) {
 	retval := &operatorHttp{
 		router:  mux.NewRouter(),
 		results: make(map[string]preparedEntry),
@@ -47,13 +47,13 @@ func NewOperatorHttp() (OperatorHttp, error) {
 		return nil, err
 	}
 
-	akashVersionJson := buf.Bytes()
+	akashVersionJSON := buf.Bytes()
 	buf = nil // remove from scope
 	enc = nil // remove from scope
 
 	retval.router.HandleFunc("/version", func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
-		_, _ = io.Copy(rw, bytes.NewReader(akashVersionJson))
+		_, _ = io.Copy(rw, bytes.NewReader(akashVersionJSON))
 	}).Methods("GET")
 
 	return retval, nil

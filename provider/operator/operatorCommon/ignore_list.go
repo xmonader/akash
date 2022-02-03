@@ -1,4 +1,4 @@
-package operator_common
+package operatorCommon
 
 import (
 	"bytes"

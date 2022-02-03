@@ -1,4 +1,4 @@
-package operator_clients
+package operatorClients
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
-	ipoptypes "github.com/ovrclk/akash/provider/operator/ip_operator/types"
+	ipoptypes "github.com/ovrclk/akash/provider/operator/ipOperator/types"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/tendermint/tendermint/libs/log"
 	"io"
@@ -40,17 +40,17 @@ func (v ipOperatorNullClient) String() string {
 	return fmt.Sprintf("<%T>", v)
 }
 
-func (_ ipOperatorNullClient) Check(ctx context.Context) error {
+func (ipOperatorNullClient) Check(_ context.Context) error {
 	return errNotImplemented
 }
 
-func (_ ipOperatorNullClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.IPAddressUsage, error) {
+func (ipOperatorNullClient) GetIPAddressUsage(_ context.Context) (ipoptypes.IPAddressUsage, error) {
 	return ipoptypes.IPAddressUsage{}, errNotImplemented
 }
 
-func (_ ipOperatorNullClient) Stop() {}
+func (ipOperatorNullClient) Stop() {}
 
-func (_ ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
+func (ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
 	return nil, errNotImplemented
 }
 

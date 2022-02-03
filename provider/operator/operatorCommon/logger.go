@@ -1,4 +1,4 @@
-package operator_common
+package operatorCommon
 
 import (
 	"github.com/go-kit/kit/log/term"

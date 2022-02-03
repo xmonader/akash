@@ -7,7 +7,7 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
-	types "github.com/ovrclk/akash/provider/operator/ip_operator/types"
+	types "github.com/ovrclk/akash/provider/operator/ipOperator/types"
 
 	v1beta2 "github.com/ovrclk/akash/x/market/types/v1beta2"
 )

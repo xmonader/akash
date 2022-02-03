@@ -1,4 +1,4 @@
-package operator_common
+package operatorCommon
 
 import (
 	provider_flags "github.com/ovrclk/akash/provider/cmd/flags"

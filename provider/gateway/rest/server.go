@@ -3,7 +3,7 @@ package rest
 import (
 	"context"
 	"crypto/tls"
-	"github.com/ovrclk/akash/provider/cluster/operator_clients"
+	"github.com/ovrclk/akash/provider/cluster/operatorClients"
 	"net"
 	"net/http"
 	"time"
@@ -21,7 +21,7 @@ func NewServer(
 	log log.Logger,
 	pclient provider.Client,
 	cquery ctypes.QueryClient,
-	ipopclient operator_clients.IPOperatorClient,
+	ipopclient operatorClients.IPOperatorClient,
 	address string,
 	pid sdk.Address,
 	certs []tls.Certificate,

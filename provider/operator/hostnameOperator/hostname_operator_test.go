@@ -1,4 +1,4 @@
-package hostname_operator
+package hostnameOperator
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	crd "github.com/ovrclk/akash/pkg/apis/akash.network/v2beta1"
 	"github.com/ovrclk/akash/provider/cluster/mocks"
 	cluster "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
-	"github.com/ovrclk/akash/provider/operator/operator_common"
+	"github.com/ovrclk/akash/provider/operator/operatorCommon"
 	"github.com/ovrclk/akash/testutil"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/stretchr/testify/mock"
@@ -128,7 +128,7 @@ func makeHostnameOperatorScaffold(t *testing.T) *hostnameOperatorScaffold {
 		webRefreshInterval: time.Second,
 		retryDelay:         time.Second,
 	},
-		operator_common.IgnoreListConfig{
+		operatorCommon.IgnoreListConfig{
 			FailureLimit: 3,
 			EntryLimit:   19,
 			AgeLimit:     time.Hour,
