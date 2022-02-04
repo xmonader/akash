@@ -16,7 +16,6 @@ type managedHostname struct {
 }
 
 type hostnameOperatorConfig struct {
-	listenAddress      string
 	pruneInterval      time.Duration
 	webRefreshInterval time.Duration
 	retryDelay         time.Duration

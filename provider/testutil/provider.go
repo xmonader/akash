@@ -166,7 +166,7 @@ func RunLocalHostnameOperator(ctx context.Context, clientCtx cosmosclient.Contex
 	cmd := hostnameoperator.Cmd()
 	releaseCmdLock()
 	args := []string {
-		fmt.Sprintf("%s=%s", provider_flags.FlagListenAddress, listenAddress),
+		fmt.Sprintf("--%s=%s", provider_flags.FlagListenAddress, listenAddress),
 	}
 
 	return testutilcli.ExecTestCLICmd(ctx, clientCtx, cmd, args...)

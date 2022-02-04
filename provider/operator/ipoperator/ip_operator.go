@@ -703,6 +703,7 @@ func doIPOperator(cmd *cobra.Command) error {
 
 	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP", providerEndpoint)
 	logger.Info("clients", "kube", client, "metallb", mllbc)
+	logger.Info("HTTP listening", "address", listenAddr)
 
 	op, err := newIPOperator(logger, client, operatorcommon.IgnoreListConfigFromViper(), mllbc, providerSda)
 	if err != nil {

@@ -443,13 +443,13 @@ func doHostnameOperator(cmd *cobra.Command) error {
 
 	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
 	config := hostnameOperatorConfig{
-		listenAddress:      viper.GetString(provider_flags.FlagListenAddress),
 		pruneInterval:      viper.GetDuration(provider_flags.FlagPruneInterval),
 		webRefreshInterval: viper.GetDuration(provider_flags.FlagWebRefreshInterval),
 		retryDelay:         viper.GetDuration(provider_flags.FlagRetryDelay),
 	}
 
 	logger := operatorcommon.OpenLogger().With("op", "hostname")
+	logger.Info("HTTP listening", "address", listenAddr)
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes

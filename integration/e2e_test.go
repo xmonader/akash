@@ -315,22 +315,8 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		Timeout: time.Second * 3,
 	}
 
-	attempts := 0
-	s.T().Log("waiting for provider to run before starting JWT server")
-	for {
-		conn, err := dialer.DialContext(s.ctx, "tcp", provHost)
-		if err != nil {
-			s.T().Logf("connecting to provider returned %v", err)
-			_, ok := err.(net.Error)
-			s.Require().True(ok, "error should be net error not %v", err)
-			attempts++
-			s.Require().Less(attempts, maxAttempts)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		_ = conn.Close() // Connected OK
-		break
-	}
+	s.T().Log("waiting for provider gateway")
+	waitForTCPSocket(s.ctx, dialer, provHost, s.T())
 
 	s.group.Go(func() error {
 		s.T().Log("starting JWT server for test")
@@ -343,22 +329,8 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		return err
 	})
 
-	attempts = 0
-	s.T().Log("waiting for JWT server to run before starting hostname operator")
-	for {
-		conn, err := dialer.DialContext(s.ctx, "tcp", jwtHost)
-		if err != nil {
-			s.T().Logf("connecting to JWT server returned %v", err)
-			_, ok := err.(net.Error)
-			s.Require().True(ok, "error should be net error not %v", err)
-			attempts++
-			s.Require().Less(attempts, maxAttempts)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		_ = conn.Close() // Connected OK
-		break
-	}
+	s.T().Log("waiting for JWT server")
+	waitForTCPSocket(s.ctx, dialer, jwtHost,s.T())
 
 	s.group.Go(func() error {
 		s.T().Log("starting hostname operator for test")
@@ -368,7 +340,37 @@ func (s *IntegrationTestSuite) SetupSuite() {
 		return nil
 	})
 
+	s.T().Log("waiting for hostname operator")
+	waitForTCPSocket(s.ctx, dialer, hostnameOperatorHost, s.T())
+
 	s.Require().NoError(s.network.WaitForNextBlock())
+}
+
+func waitForTCPSocket(ctx context.Context, dialer net.Dialer, host string, t *testing.T){
+	subctx, cancel := context.WithTimeout(ctx, 30 * time.Second)
+	defer cancel()
+
+	for {
+		if err := subctx.Err(); err != nil {
+			t.Fatalf("timed out trying to connect to host %q", host)
+		}
+
+		conn, err := dialer.DialContext(subctx, "tcp", host)
+		if err != nil {
+			t.Logf("connecting to %q returned %v", host, err)
+
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				t.Fatalf("timed out trying to connect to host %q", host)
+			}
+
+			_, ok := err.(net.Error)
+			require.Truef(t, ok, "error should be net.Error not [%T] %v", err, err)
+			time.Sleep(333 * time.Millisecond)
+			continue
+		}
+		_ = conn.Close()
+		return
+	}
 }
 
 func (s *IntegrationTestSuite) TearDownTest() {
@@ -1367,6 +1369,7 @@ func (s *E2EApp) TestE2EMigrateHostname() {
 	clitestutil.ValidateTxSuccessful(s.T(), s.validator.ClientCtx, res.Bytes())
 
 	time.Sleep(10 * time.Second) // Make sure provider has time to close the lease
+	// Query the first lease, make sure it is closed
 	cmdResult, err = providerCmd.ProviderLeaseStatusExec(
 		s.validator.ClientCtx,
 		fmt.Sprintf("--%s=%v", "dseq", lid.DSeq),
@@ -1376,8 +1379,8 @@ func (s *E2EApp) TestE2EMigrateHostname() {
 		fmt.Sprintf("--%s=%s", flags.FlagFrom, s.keyTenant.GetAddress().String()),
 		fmt.Sprintf("--%s=%s", flags.FlagHome, s.validator.ClientCtx.HomeDir),
 	)
-	s.Require().NoError(err)
-	s.Require().Len(cmdResult.Bytes(), 0)
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "remote server returned 404")
 
 	// confirm hostname still reachable, on the hostname it was migrated to
 	queryAppWithHostname(s.T(), appURL, 50, secondaryHostname)
