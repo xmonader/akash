@@ -138,17 +138,19 @@ func (il *ignoreList) Prune() bool {
 			}
 		}
 
-		// if enough entries have not been selected for deletion
-		// then just remove half of the entries
-		if len(il.entries)-len(toDelete) > int(il.cfg.EntryLimit) {
-			//		op.log.Info("removing half of ignore list entries")
-			i := 0
-			for leaseID := range il.entries {
-				if (i % 2) == 0 {
-					toDelete = append(toDelete, leaseID)
-				}
-				i++
+		for _, leaseID := range toDelete {
+			delete(il.entries, leaseID)
+			deleted = true
+		}
+		toDelete = nil // clear the list
+
+		// if enough entries have not been selected for deletion then just remove entries
+		// until we get to enough removed
+		for leaseID := range il.entries {
+			if len(il.entries) - len(toDelete) <= int(il.cfg.EntryLimit) {
+				break
 			}
+			toDelete = append(toDelete, leaseID)
 		}
 
 		for _, leaseID := range toDelete {
