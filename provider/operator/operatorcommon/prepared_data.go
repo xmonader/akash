@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+const (
+	preparedResultByteSizeLimit = 8388608 // 8 megabtyes
+)
+
 type PreparedResult interface {
 	Flag()
 	Set([]byte)
@@ -34,6 +38,14 @@ func (pr *preparedResult) Flag() {
 }
 
 func (pr *preparedResult) Set(data []byte) {
+	// Limit the length of the value
+	// This is done because storing a precomputed result is entirely sensible (it scaled well)
+	// but this code path should never allow us to store arbitrarily large serialized results
+	// which can happen as the result of other programming errors. If this happens just truncate the
+	// result so some debugging is still possible
+	if len(data) > preparedResultByteSizeLimit {
+		data = data[0:preparedResultByteSizeLimit]
+	}
 	pr.needsPrepare = false
 	pr.data.Store(preparedResultData{
 		preparedAt: time.Now(),
