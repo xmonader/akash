@@ -467,7 +467,9 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	httpClient := http.Client{
 		Transport: &http.Transport{
 			Proxy:                  nil,
-			DialContext:            nil,
+			DialContext:            func(_ context.Context, _, _ string) (net.Conn, error) {
+				return nil, io.EOF // TLS only connections allowed
+			},
 			Dial:                   nil,
 			DialTLSContext:         tlsDialer.DialContext,
 			DialTLS:                nil,
@@ -501,7 +503,8 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 		return "", err
 	}
 
-	// TODO - use the rest gateway client to get this? Should be MUCH simpler
+	// The gateway client isn't used here because it tries to query the blockchain. This is an antipattern
+	// for an operator
 	statusURL := fmt.Sprintf("https://%s:%d/address", addr.Target, addr.Port)
 	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
 	if err != nil {

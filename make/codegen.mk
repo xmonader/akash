@@ -12,7 +12,8 @@ mocks: $(MOCKERY) modvendor
 	$(MOCKERY) --case=underscore --dir provider/cluster                                 --output provider/cluster/mocks      --name ReadClient
 	$(MOCKERY) --case=underscore --dir provider/cluster                                 --output provider/cluster/mocks      --name Cluster
 	$(MOCKERY) --case=underscore --dir provider/cluster                                 --output provider/cluster/mocks      --name Service
-	$(MOCKERY) --case=underscore --dir provider/cluster/operator_clients                                 --output provider/cluster/mocks      --name IPOperatorClient
+	$(MOCKERY) --case=underscore --dir provider/cluster/kube/metallb                                 --output provider/cluster/mocks      --name Client --structname MetalLBClient --filename metallb_client.go
+	$(MOCKERY) --case=underscore --dir provider/cluster/operatorclients                                 --output provider/cluster/mocks      --name IPOperatorClient
 	$(MOCKERY) --case=underscore --dir provider/cluster/types/v1beta2                   --output provider/cluster/mocks      --name Deployment
 	$(MOCKERY) --case=underscore --dir provider/cluster/types/v1beta2                   --output provider/cluster/mocks      --name HostnameServiceClient
 	$(MOCKERY) --case=underscore --dir provider/cluster/types/v1beta2                   --output provider/cluster/mocks      --name Reservation
