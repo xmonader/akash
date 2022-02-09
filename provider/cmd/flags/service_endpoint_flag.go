@@ -42,7 +42,7 @@ func GetServiceEndpointFlagValue(logger log.Logger, serviceName string) (*net.SR
 
 	port, err := strconv.ParseUint(flagValueParts[1], 10, 16)
 	if err != nil {
-		return nil, fmt.Errorf("endpoint for service %q has invalid port %q: %w", serviceName,flagValueParts[1], err)
+		return nil, fmt.Errorf("endpoint for service %q has invalid port %q: %w", serviceName, flagValueParts[1], err)
 	}
 
 	host := flagValueParts[0]

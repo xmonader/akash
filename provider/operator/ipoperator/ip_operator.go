@@ -3,7 +3,6 @@ package ipoperator
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/ovrclk/akash/provider/cluster"
 	clusterClient "github.com/ovrclk/akash/provider/cluster/kube"
+	"github.com/ovrclk/akash/provider/cluster/kube/clientcommon"
 	"github.com/ovrclk/akash/provider/cluster/kube/metallb"
 	"github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
@@ -24,7 +24,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"io"
 	kubeErrors "k8s.io/apimachinery/pkg/api/errors"
-	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -35,10 +34,9 @@ import (
 	"github.com/ovrclk/akash/provider/operator/operatorcommon"
 )
 
-
 const (
 	serviceProvider = "provider"
-	serviceMetalLb = "metal-lb"
+	serviceMetalLb  = "metal-lb"
 )
 
 var (
@@ -422,82 +420,9 @@ func handleHTTPError(op *ipOperator, rw http.ResponseWriter, req *http.Request, 
 }
 
 func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, error) {
-	netDialer := &net.Dialer{
-		Timeout:       10 * time.Second,
-		Deadline:      time.Time{},
-		LocalAddr:     nil,
-		DualStack:     false,
-		FallbackDelay: 0,
-		KeepAlive:     0,
-		Resolver:      nil,
-		Cancel:        nil,
-		Control:       nil,
-	}
-	tlsDialer := tls.Dialer{
-		NetDialer: netDialer,
-		Config: &tls.Config{
-			Rand:                        nil,
-			Time:                        nil,
-			Certificates:                nil,
-			NameToCertificate:           nil,
-			GetCertificate:              nil,
-			GetClientCertificate:        nil,
-			GetConfigForClient:          nil,
-			VerifyPeerCertificate:       nil,
-			VerifyConnection:            nil,
-			RootCAs:                     nil,
-			NextProtos:                  nil,
-			ServerName:                  "",
-			ClientAuth:                  0,
-			ClientCAs:                   nil,
-			InsecureSkipVerify:          true, // nolint:gosec
-			CipherSuites:                nil,
-			PreferServerCipherSuites:    false,
-			SessionTicketsDisabled:      false,
-			SessionTicketKey:            [32]byte{},
-			ClientSessionCache:          nil,
-			MinVersion:                  0,
-			MaxVersion:                  0,
-			CurvePreferences:            nil,
-			DynamicRecordSizingDisabled: false,
-			Renegotiation:               0,
-			KeyLogWriter:                nil,
-		},
-	}
-	httpClient := http.Client{
-		Transport: &http.Transport{
-			Proxy:                  nil,
-			DialContext:            func(_ context.Context, _, _ string) (net.Conn, error) {
-				return nil, io.EOF // TLS only connections allowed
-			},
-			Dial:                   nil,
-			DialTLSContext:         tlsDialer.DialContext,
-			DialTLS:                nil,
-			TLSClientConfig:        nil,
-			TLSHandshakeTimeout:    0,
-			DisableKeepAlives:      false,
-			DisableCompression:     false,
-			MaxIdleConns:           0,
-			MaxIdleConnsPerHost:    0,
-			MaxConnsPerHost:        0,
-			IdleConnTimeout:        0,
-			ResponseHeaderTimeout:  0,
-			ExpectContinueTimeout:  0,
-			TLSNextProto:           nil,
-			ProxyConnectHeader:     nil,
-			GetProxyConnectHeader:  nil,
-			MaxResponseHeaderBytes: 0,
-			WriteBufferSize:        0,
-			ReadBufferSize:         0,
-			ForceAttemptHTTP2:      false,
-		},
-		CheckRedirect: nil,
-		Jar:           nil,
-		Timeout:       30 * time.Second,
-	}
-
 	// Resolve the hostname & port
-	addr, err := op.providerSda.GetAddress(ctx)
+	providerClient, err := op.providerSda.GetClient(ctx, true, false)
+
 	if err != nil {
 		op.log.Error("could not discover provider address", "error", err)
 		return "", err
@@ -505,8 +430,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 
 	// The gateway client isn't used here because it tries to query the blockchain. This is an antipattern
 	// for an operator
-	statusURL := fmt.Sprintf("https://%s:%d/address", addr.Target, addr.Port)
-	statusReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+	statusReq, err := providerClient.CreateRequest(ctx, http.MethodGet, "/address", nil)
 	if err != nil {
 		return "", err
 	}
@@ -522,7 +446,7 @@ func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, err
 	var response *http.Response
 	err = retry.Do(func() error {
 		var err error
-		response, err = httpClient.Do(statusReq)
+		response, err = providerClient.DoRequest(statusReq)
 		if err != nil {
 			op.log.Error("failed asking provider for status", "error", err)
 			return err
@@ -679,7 +603,6 @@ func handleIPLeaseStatusGet(op *ipOperator, rw http.ResponseWriter, req *http.Re
 	}
 }
 
-
 func doIPOperator(cmd *cobra.Command) error {
 	ns := viper.GetString(provider_flags.FlagK8sManifestNS)
 	listenAddr := viper.GetString(provider_flags.FlagListenAddress)
@@ -687,13 +610,22 @@ func doIPOperator(cmd *cobra.Command) error {
 
 	// Config path not provided because the authorization comes from the role assigned to the deployment
 	// and provided by kubernetes
-	configPath := ""
+	configPath := "" // TODO - make me an flag or whatever 'provider run' does by default
+	kubeConfig, err := clientcommon.OpenKubeConfig(configPath, logger)
+	if err != nil {
+		return err
+	}
+
 	client, err := clusterClient.NewClient(logger, ns, configPath)
 	if err != nil {
 		return err
 	}
 
 	metalLbEndpoint, err := provider_flags.GetServiceEndpointFlagValue(logger, serviceMetalLb)
+	if err != nil {
+		return err
+	}
+
 	mllbc, err := metallb.NewClient(configPath, logger, metalLbEndpoint)
 	if err != nil {
 		return err
@@ -704,7 +636,10 @@ func doIPOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	providerSda := clusterutil.NewServiceDiscoveryAgent(logger, "gateway", "akash-provider", "akash-services", "TCP", providerEndpoint)
+	providerSda , err:= clusterutil.NewServiceDiscoveryAgent(logger, kubeConfig, "gateway", "akash-provider", "akash-services", providerEndpoint)
+	if err != nil {
+		return err
+	}
 	logger.Info("clients", "kube", client, "metallb", mllbc)
 	logger.Info("HTTP listening", "address", listenAddr)
 

@@ -147,7 +147,7 @@ func (il *ignoreList) Prune() bool {
 		// if enough entries have not been selected for deletion then just remove entries
 		// until we get to enough removed
 		for leaseID := range il.entries {
-			if len(il.entries) - len(toDelete) <= int(il.cfg.EntryLimit) {
+			if len(il.entries)-len(toDelete) <= int(il.cfg.EntryLimit) {
 				break
 			}
 			toDelete = append(toDelete, leaseID)

@@ -54,11 +54,11 @@ type Client interface {
 
 type client struct {
 	kube       kubernetes.Interface
-	httpClient *http.Client
 
 	log log.Logger
 
 	sda clusterutil.ServiceDiscoveryAgent
+	client clusterutil.ServiceClient
 }
 
 func (c *client) String() string {
@@ -92,50 +92,14 @@ func NewClient(configPath string, logger log.Logger, endpoint *net.SRV) (Client,
 		return nil, fmt.Errorf("%w: creating kubernetes client", err)
 	}
 
-	dialer := net.Dialer{
-		Timeout:       metricsTimeout,
-		Deadline:      time.Time{},
-		LocalAddr:     nil,
-		FallbackDelay: 0,
-		KeepAlive:     0,
-		Resolver:      nil,
-		Control:       nil,
+	sda, err := clusterutil.NewServiceDiscoveryAgent(logger, config, "monitoring", "controller", "metallb-system", endpoint)
+	if err != nil {
+		return nil, err
 	}
-
-	transport := &http.Transport{
-		Proxy:                  nil,
-		DialContext:            dialer.DialContext,
-		DialTLSContext:         nil,
-		TLSClientConfig:        nil,
-		TLSHandshakeTimeout:    0,
-		DisableKeepAlives:      false,
-		DisableCompression:     true,
-		MaxIdleConns:           1,
-		MaxIdleConnsPerHost:    1,
-		MaxConnsPerHost:        1,
-		IdleConnTimeout:        0,
-		ResponseHeaderTimeout:  metricsTimeout,
-		ExpectContinueTimeout:  metricsTimeout,
-		TLSNextProto:           nil,
-		ProxyConnectHeader:     nil,
-		GetProxyConnectHeader:  nil,
-		MaxResponseHeaderBytes: 0,
-		WriteBufferSize:        0,
-		ReadBufferSize:         0,
-		ForceAttemptHTTP2:      false,
-	}
-
-	sda := clusterutil.NewServiceDiscoveryAgent(logger, "monitoring", "controller", "metallb-system", "TCP", endpoint)
 
 	return &client{
 		sda:  sda,
 		kube: kc,
-		httpClient: &http.Client{
-			Transport:     transport,
-			CheckRedirect: nil,
-			Jar:           nil,
-			Timeout:       metricsTimeout,
-		},
 
 		log: logger.With("client", "metallb"),
 	}, nil
@@ -155,18 +119,20 @@ can get stuff like this to access metal lb metrics
 */
 
 func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint, error) {
-	metalAddr, err := c.sda.GetAddress(ctx)
+	if c.client == nil {
+		var err error
+		c.client, err = c.sda.GetClient(ctx, false, false)
+		if err != nil {
+			return math.MaxUint32, math.MaxUint32, err
+		}
+	}
+
+	request, err := c.client.CreateRequest(ctx, http.MethodGet, metricsPath, nil )
 	if err != nil {
 		return math.MaxUint32, math.MaxUint32, err
 	}
-	metricsURL := fmt.Sprintf("http://%s:%d%s", metalAddr.Target, metalAddr.Port, metricsPath)
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
-	if err != nil {
-		return math.MaxUint32, math.MaxUint32, err
-	}
-
-	response, err := c.httpClient.Do(request)
+	response, err := c.client.DoRequest(request)
 	if err != nil {
 		return math.MaxUint32, math.MaxUint32, err
 	}

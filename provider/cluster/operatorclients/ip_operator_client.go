@@ -10,9 +10,9 @@ import (
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
 	"github.com/tendermint/tendermint/libs/log"
 	"io"
+	"k8s.io/client-go/rest"
 	"net"
 	"net/http"
-	"time"
 )
 
 var (
@@ -54,52 +54,16 @@ func (ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) 
 	return nil, errNotImplemented
 }
 
-func NewIPOperatorClient(logger log.Logger, endpoint *net.SRV) (IPOperatorClient, error) {
-	sda := clusterutil.NewServiceDiscoveryAgent(logger, "api", "akash-ip-operator", "akash-services", "tcp", endpoint)
-
-	dialer := net.Dialer{
-		Timeout:       requestTimeout,
-		Deadline:      time.Time{},
-		LocalAddr:     nil,
-		FallbackDelay: 0,
-		KeepAlive:     0,
-		Resolver:      nil,
-		Control:       nil,
-	}
-
-	transport := &http.Transport{
-		Proxy:                  nil,
-		DialContext:            dialer.DialContext,
-		DialTLSContext:         nil,
-		TLSClientConfig:        nil,
-		TLSHandshakeTimeout:    0,
-		DisableKeepAlives:      false,
-		DisableCompression:     true,
-		MaxIdleConns:           1,
-		MaxIdleConnsPerHost:    1,
-		MaxConnsPerHost:        1,
-		IdleConnTimeout:        0,
-		ResponseHeaderTimeout:  requestTimeout,
-		ExpectContinueTimeout:  requestTimeout,
-		TLSNextProto:           nil,
-		ProxyConnectHeader:     nil,
-		GetProxyConnectHeader:  nil,
-		MaxResponseHeaderBytes: 0,
-		WriteBufferSize:        0,
-		ReadBufferSize:         0,
-		ForceAttemptHTTP2:      false,
+func NewIPOperatorClient(logger log.Logger, kubeConfig *rest.Config, endpoint *net.SRV) (IPOperatorClient, error) {
+	sda, err := clusterutil.NewServiceDiscoveryAgent(logger, kubeConfig, "api", "akash-ip-operator", "akash-services",  endpoint)
+	if err != nil {
+		return nil, err
 	}
 
 	return &ipOperatorClient{
 		sda: sda,
-		httpClient: &http.Client{
-			Transport:     transport,
-			CheckRedirect: nil,
-			Jar:           nil,
-			Timeout:       requestTimeout,
-		},
 		log: logger.With("operator", "ip"),
-	}, nil // TODO - can we possibly return an error here?
+	}, nil
 }
 
 func (ipoc *ipOperatorClient) String() string {
@@ -117,7 +81,7 @@ const (
 /* A client to talk to the Akash implementation of the IP Operator via HTTP */
 type ipOperatorClient struct {
 	sda        clusterutil.ServiceDiscoveryAgent
-	httpClient *http.Client
+	client clusterutil.ServiceClient
 	log        log.Logger
 }
 
@@ -129,7 +93,7 @@ func (ipoc *ipOperatorClient) Check(ctx context.Context) error {
 		return err
 	}
 
-	response, err := ipoc.httpClient.Do(req)
+	response, err := ipoc.client.DoRequest(req)
 	if err != nil {
 		return err
 	}
@@ -143,12 +107,14 @@ func (ipoc *ipOperatorClient) Check(ctx context.Context) error {
 }
 
 func (ipoc *ipOperatorClient) newRequest(ctx context.Context, method string, path string, body io.Reader) (*http.Request, error) {
-	addr, err := ipoc.sda.GetAddress(ctx)
-	if err != nil {
-		return nil, err
+	if ipoc.client == nil {
+		var err error
+		ipoc.client, err = ipoc.sda.GetClient(ctx, false, false)
+		if err != nil {
+			return nil, err
+		}
 	}
-	remoteURL := fmt.Sprintf("http://%s:%d%s", addr.Target, addr.Port, path)
-	return http.NewRequest(method, remoteURL, body)
+	return ipoc.client.CreateRequest(ctx, method, path, body)
 }
 
 func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, orderID mtypes.OrderID) ([]ipoptypes.LeaseIPStatus, error) {
@@ -159,7 +125,7 @@ func (ipoc *ipOperatorClient) GetIPAddressStatus(ctx context.Context, orderID mt
 	}
 
 	ipoc.log.Debug("asking for IP address status", "method", req.Method, "url", req.URL)
-	response, err := ipoc.httpClient.Do(req)
+	response, err := ipoc.client.DoRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +156,7 @@ func (ipoc *ipOperatorClient) GetIPAddressUsage(ctx context.Context) (ipoptypes.
 		return ipoptypes.IPAddressUsage{}, err
 	}
 
-	response, err := ipoc.httpClient.Do(req)
+	response, err := ipoc.client.DoRequest(req)
 	if err != nil {
 		return ipoptypes.IPAddressUsage{}, err
 	}

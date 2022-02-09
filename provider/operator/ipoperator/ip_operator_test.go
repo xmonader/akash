@@ -30,7 +30,7 @@ type ipOperatorScaffold struct {
 	op *ipOperator
 
 	clusterMock *mocks.Client
-	metalMock *mocks.MetalLBClient
+	metalMock   *mocks.MetalLBClient
 
 	ilc operatorcommon.IgnoreListConfig
 }
@@ -42,7 +42,7 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 	providerAddr := testutil.AccAddress(t)
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
-	err := enc.Encode(map[string]string {
+	err := enc.Encode(map[string]string{
 		"address": providerAddr.String(),
 	})
 	require.NoError(t, err)
@@ -51,14 +51,14 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 	router := mux.NewRouter()
 
 	addressRequestNotify := make(chan struct{}, 1)
-	router.HandleFunc("/address", func(rw http.ResponseWriter, _ *http.Request){
+	router.HandleFunc("/address", func(rw http.ResponseWriter, _ *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 		_, err = io.Copy(rw, bytes.NewReader(addrJSONBytes))
 		if err == nil {
 			select {
-				case addressRequestNotify <- struct {}{}:
-				default:
-					// do nothing
+			case addressRequestNotify <- struct{}{}:
+			default:
+				// do nothing
 			}
 		}
 	})
@@ -71,7 +71,6 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 	mllbc := &mocks.MetalLBClient{}
 	mllbc.On("Stop")
 
-
 	providerURL, err := url.Parse(fakeProvider.URL)
 	require.NoError(t, err)
 	providerPort, err := strconv.ParseUint(providerURL.Port(), 0, 16)
@@ -80,7 +79,7 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 	// Fake the discovery of the provider
 	sda := clusterutil.NewServiceDiscoveryAgent(l, "", "", "", "", &net.SRV{
 		Target:   providerURL.Hostname(),
-		Port:    uint16(providerPort),
+		Port:     uint16(providerPort),
 		Priority: 0,
 		Weight:   0,
 	})
@@ -96,10 +95,10 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 	require.NotNil(t, op)
 
 	s := ipOperatorScaffold{
-		op: op,
-		metalMock: mllbc,
+		op:          op,
+		metalMock:   mllbc,
 		clusterMock: client,
-		ilc: ilc,
+		ilc:         ilc,
 	}
 
 	if run {
@@ -114,9 +113,9 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 
 		// Wait for startup stuff
 		select {
-			case <- addressRequestNotify:
-			case <- ctx.Done():
-				t.Fatal("timed out waiting for initial request for provider address")
+		case <-addressRequestNotify:
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for initial request for provider address")
 		}
 
 		fn(ctx, s)
@@ -134,19 +133,19 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 }
 
 type fakeIPEvent struct {
-	leaseID mtypes.LeaseID
+	leaseID      mtypes.LeaseID
 	externalPort uint32
-	port uint32
-	sharingKey string
-	serviceName string
-	protocol manifest.ServiceProtocol
-	eventType v1beta2.ProviderResourceEvent
+	port         uint32
+	sharingKey   string
+	serviceName  string
+	protocol     manifest.ServiceProtocol
+	eventType    v1beta2.ProviderResourceEvent
 }
 
-func(fipe fakeIPEvent) GetLeaseID() mtypes.LeaseID {
+func (fipe fakeIPEvent) GetLeaseID() mtypes.LeaseID {
 	return fipe.leaseID
 }
-func(fipe fakeIPEvent) GetExternalPort() uint32 {
+func (fipe fakeIPEvent) GetExternalPort() uint32 {
 	return fipe.externalPort
 }
 func (fipe fakeIPEvent) GetPort() uint32 {
@@ -157,11 +156,11 @@ func (fipe fakeIPEvent) GetSharingKey() string {
 	return fipe.sharingKey
 }
 
-func(fipe fakeIPEvent) GetServiceName() string {
+func (fipe fakeIPEvent) GetServiceName() string {
 	return fipe.serviceName
 }
 
-func(fipe fakeIPEvent) GetProtocol() manifest.ServiceProtocol {
+func (fipe fakeIPEvent) GetProtocol() manifest.ServiceProtocol {
 	return fipe.protocol
 }
 
@@ -289,14 +288,14 @@ func TestIPOperatorGivesUpOnErrors(t *testing.T) {
 		}
 
 		err := s.op.applyEvent(ctx, fakeEvent)
- 		require.NoError(t, err) // Nothing happens because this is ignored
+		require.NoError(t, err) // Nothing happens because this is ignored
 	})
 }
 
 func TestIPOperatorRun(t *testing.T) {
 	leaseID := testutil.LeaseID(t)
 	waitForEventRead := make(chan struct{}, 1)
-	runIPOperator(t, true, func(ctx context.Context, s ipOperatorScaffold){
+	runIPOperator(t, true, func(ctx context.Context, s ipOperatorScaffold) {
 		s.metalMock.On("GetIPPassthroughs", mock.Anything).Return(nil, nil)
 		s.metalMock.On("GetIPAddressUsage", mock.Anything).Return(uint(0), uint(3), nil)
 		events := make(chan v1beta2.IPResourceEvent)
@@ -311,8 +310,8 @@ func TestIPOperatorRun(t *testing.T) {
 				protocol:     "UDP",
 				eventType:    v1beta2.ProviderResourceAdd,
 			}:
-				case <-ctx.Done():
-					return
+			case <-ctx.Done():
+				return
 			}
 			close(events)
 			select {
@@ -320,8 +319,7 @@ func TestIPOperatorRun(t *testing.T) {
 			default:
 			}
 		}()
-		var eventsRead <- chan v1beta2.IPResourceEvent
-		eventsRead = events
+		eventsRead := <-chan v1beta2.IPResourceEvent(events)
 		s.clusterMock.On("ObserveIPState", mock.Anything).Return(eventsRead, nil)
 
 		s.metalMock.On("CreateIPPassthrough", mock.Anything, leaseID,
@@ -338,10 +336,9 @@ func TestIPOperatorRun(t *testing.T) {
 		require.NotNil(t, s.op)
 
 		select {
-		case <- waitForEventRead:
-		case <- ctx.Done():
+		case <-waitForEventRead:
+		case <-ctx.Done():
 			t.Fatalf("timeout waiting for event read")
 		}
 	})
 }
-

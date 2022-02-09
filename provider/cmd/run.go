@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/ovrclk/akash/provider/cluster/kube/clientcommon"
 	"github.com/ovrclk/akash/provider/cluster/operatorclients"
 	"github.com/ovrclk/akash/provider/operator/waiter"
 	"io"
@@ -102,7 +103,7 @@ const (
 )
 
 const (
-	serviceIPOperator = "ip-operator"
+	serviceIPOperator       = "ip-operator"
 	serviceHostnameOperator = "hostname-operator"
 )
 
@@ -446,7 +447,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	overcommitPercentMemory := 1.0 + float64(viper.GetUint64(FlagOvercommitPercentMemory)/100.0)
 	pricing, err := createBidPricingStrategy(strategy)
 	blockedHostnames := viper.GetStringSlice(FlagDeploymentBlockedHostnames)
-	kubeConfig := viper.GetString(FlagKubeConfig)
+	kubeConfigPath := viper.GetString(FlagKubeConfig)
 	deploymentRuntimeClass := viper.GetString(FlagDeploymentRuntimeClass)
 	bidTimeout := viper.GetDuration(FlagBidTimeout)
 	manifestTimeout := viper.GetDuration(FlagManifestTimeout)
@@ -456,13 +457,15 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	rpcQueryTimeout := viper.GetDuration(FlagRPCQueryTimeout)
 	enableIPOperator := viper.GetBool(FlagEnableIPOperator)
 
+	logger := openLogger().With("cmp", "provider")
+	kubeConfig, err := clientcommon.OpenKubeConfig(kubeConfigPath, logger)
+	if err != nil {
+		return err
+	}
+
 	var metricsRouter http.Handler
 	if len(metricsListener) != 0 {
 		metricsRouter = makeMetricsRouter()
-	}
-
-	if err != nil {
-		return err
 	}
 
 	cctx := sdkclient.GetClientContextFromCmd(cmd)
@@ -524,9 +527,8 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	log := openLogger().With("cmp", "provider")
 
-	broadcaster, err := broadcaster.NewSerialClient(log, cctx, txFactory, info)
+	broadcasterInstance, err := broadcaster.NewSerialClient(logger, cctx, txFactory, info)
 	if err != nil {
 		return err
 	}
@@ -534,12 +536,12 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	// TODO: actually get the passphrase?
 	// passphrase, err := keys.GetPassphrase(fromName)
 	aclient := client.NewClientWithBroadcaster(
-		log,
+		logger,
 		cctx,
 		txFactory,
 		info,
 		client.NewQueryClientFromCtx(cctx),
-		broadcaster,
+		broadcasterInstance,
 	)
 
 	res, err := aclient.Query().Provider(
@@ -573,7 +575,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		builder.SettingsKey: kubeSettings,
 	}
 
-	cclient, err := createClusterClient(log, cmd, kubeConfig)
+	cclient, err := createClusterClient(logger, cmd, kubeConfigPath)
 	if err != nil {
 		return err
 	}
@@ -583,7 +585,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	currentBlockHeight := statusResult.SyncInfo.LatestBlockHeight
-	session := session.New(log, aclient, pinfo, currentBlockHeight)
+	session := session.New(logger, aclient, pinfo, currentBlockHeight)
 
 	if err := cctx.Client.Start(); err != nil {
 		return err
@@ -638,24 +640,28 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	config.RPCQueryTimeout = rpcQueryTimeout
 	config.CachedResultMaxAge = cachedResultMaxAge
 
+
 	// This value can be nil, the operator is not mandatory
 	var ipOperatorClient operatorclients.IPOperatorClient
 	if enableIPOperator {
-		endpoint, err := provider_flags.GetServiceEndpointFlagValue(log, serviceIPOperator)
+		endpoint, err := provider_flags.GetServiceEndpointFlagValue(logger, serviceIPOperator)
 		if err != nil {
 			return err
 		}
-		ipOperatorClient, err = operatorclients.NewIPOperatorClient(log, endpoint)
+		ipOperatorClient, err = operatorclients.NewIPOperatorClient(logger, kubeConfig, endpoint)
 		if err != nil {
 			return err
 		}
 	}
 
-	endpoint, err := provider_flags.GetServiceEndpointFlagValue(log, serviceHostnameOperator)
+	endpoint, err := provider_flags.GetServiceEndpointFlagValue(logger, serviceHostnameOperator)
 	if err != nil {
 		return err
 	}
-	hostnameOperatorClient := operatorclients.NewHostnameOperatorClient(log, endpoint)
+	hostnameOperatorClient, err := operatorclients.NewHostnameOperatorClient(logger, kubeConfig, endpoint)
+	if err != nil {
+		return err
+	}
 
 	waitClients := make([]waiter.Waitable, 0)
 	waitClients = append(waitClients, hostnameOperatorClient)
@@ -664,7 +670,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 		waitClients = append(waitClients, ipOperatorClient)
 	}
 
-	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), log, waitClients...)
+	operatorWaiter := waiter.NewOperatorWaiter(cmd.Context(), logger, waitClients...)
 
 	service, err := provider.NewService(ctx, cctx, info.GetAddress(), session, bus, cclient, ipOperatorClient, operatorWaiter, config)
 	if err != nil {
@@ -673,7 +679,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 
 	gateway, err := gwrest.NewServer(
 		ctx,
-		log,
+		logger,
 		service,
 		cquery,
 		ipOperatorClient,
@@ -721,7 +727,7 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	}
 
 	err = group.Wait()
-	broadcaster.Close()
+	broadcasterInstance.Close()
 	if ipOperatorClient != nil {
 		ipOperatorClient.Stop()
 	}

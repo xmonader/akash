@@ -16,7 +16,7 @@ func TestOperatorServer(t *testing.T) {
 	called := false
 	flag := server.AddPreparedEndpoint("/thepath", func(pd PreparedResult) error {
 		require.NotNil(t, pd)
-		pd.Set([]byte{0x0,0x1,0x2})
+		pd.Set([]byte{0x0, 0x1, 0x2})
 		called = true
 		return nil
 	})

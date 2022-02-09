@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestPreparedData(t *testing.T){
+func TestPreparedData(t *testing.T) {
 	start := time.Now()
 	pr := newPreparedResult()
 	require.Len(t, pr.get().data, 0)
@@ -16,7 +16,7 @@ func TestPreparedData(t *testing.T){
 	pr.Flag()
 	require.True(t, pr.needsPrepare)
 
-	testData := []byte{0x33,0x44,0xff}
+	testData := []byte{0x33, 0x44, 0xff}
 
 	pr.Set(testData)
 
@@ -24,7 +24,7 @@ func TestPreparedData(t *testing.T){
 	require.Greater(t, pr.get().preparedAt.UnixNano(), start.UnixNano())
 }
 
-func TestPrepraedDataTruncates(t *testing.T){
+func TestPrepraedDataTruncates(t *testing.T) {
 	pr := newPreparedResult()
 
 	const l = 10000000

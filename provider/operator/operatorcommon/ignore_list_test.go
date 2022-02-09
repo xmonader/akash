@@ -18,8 +18,7 @@ func TestIgnoreList(t *testing.T) {
 		AgeLimit:     time.Hour,
 	})
 
-
-	cnt := testutil.RandRangeInt(101,1000)
+	cnt := testutil.RandRangeInt(101, 1000)
 	for i := 0; i != cnt; i++ {
 		lid := testutil.LeaseID(t)
 		require.False(t, il.IsFlagged(lid))
