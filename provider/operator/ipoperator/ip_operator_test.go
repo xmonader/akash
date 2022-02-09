@@ -77,12 +77,13 @@ func runIPOperator(t *testing.T, run bool, prerun, fn func(ctx context.Context, 
 	require.NoError(t, err)
 
 	// Fake the discovery of the provider
-	sda := clusterutil.NewServiceDiscoveryAgent(l, "", "", "", "", &net.SRV{
+	sda, err := clusterutil.NewServiceDiscoveryAgent(l, nil, "", "", "",  &net.SRV{
 		Target:   providerURL.Hostname(),
 		Port:     uint16(providerPort),
 		Priority: 0,
 		Weight:   0,
 	})
+	require.NoError(t, err)
 
 	ilc := operatorcommon.IgnoreListConfig{
 		FailureLimit: 100,

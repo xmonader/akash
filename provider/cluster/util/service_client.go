@@ -45,7 +45,7 @@ func newHttpWrapperServiceClient(isHttps, secure bool, baseURL string) *httpWrap
 		tlsDialer := tls.Dialer{
 			NetDialer: netDialer,
 			Config: &tls.Config{
-				InsecureSkipVerify: secure, // nolint:gosec
+				InsecureSkipVerify: !secure, // nolint:gosec
 			},
 		}
 		dialTLS = tlsDialer.DialContext

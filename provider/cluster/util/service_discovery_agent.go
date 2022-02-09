@@ -213,9 +213,9 @@ func (sda *serviceDiscoveryAgent) discoverKube() (clientFactory, error) {
 		if isHttps {
 			serviceName = fmt.Sprintf("https:%s", service.Name)
 		}
-		proxyURL := fmt.Sprintf("https://%s/api/v1/namespaces/%s/services/%s:%s/proxy", kubeHost, service.Namespace, serviceName, port.Name)
+		proxyURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:%s/proxy", kubeHost, service.Namespace, serviceName, port.Name)
 
-		result := newHttpWrapperServiceClient(isHttps, secure, proxyURL)
+		result := newHttpWrapperServiceClient(true /*kube-proxy always reacher via HTTPS */, secure, proxyURL)
 		result.headers = map[string]string {
 			"Authorization": fmt.Sprintf("Bearer %s", kubeToken),
 		}
