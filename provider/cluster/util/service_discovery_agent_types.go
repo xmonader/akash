@@ -48,5 +48,4 @@ type clientFactory func(isHttps, secure bool) ServiceClient
 type httpWrapperServiceClient struct {
 	httpClient *http.Client
 	url string
-	headers map[string]string
 }

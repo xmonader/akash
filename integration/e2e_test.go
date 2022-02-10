@@ -1551,7 +1551,6 @@ func (s *E2EIPAddress) TestIPAddressLease() {
 
 func TestIntegrationTestSuite(t *testing.T) {
 	integrationTestOnly(t)
-	/**
 	suite.Run(t, new(E2EContainerToContainer))
 	suite.Run(t, new(E2EAppNodePort))
 	suite.Run(t, new(E2EDeploymentUpdate))
@@ -1560,8 +1559,6 @@ func TestIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(E2EPersistentStorageBeta2))
 	suite.Run(t, new(E2EMigrateHostname))
 	suite.Run(t, new(E2EJWTServer))
-	**/
-
 	suite.Run(t, &E2EIPAddress{IntegrationTestSuite{ipMarketplace: true}})
 }
 

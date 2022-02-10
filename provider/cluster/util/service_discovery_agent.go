@@ -12,7 +12,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-
 	"math/rand"
 	"net"
 	"time"
@@ -205,25 +204,32 @@ func (sda *serviceDiscoveryAgent) discoverKube() (clientFactory, error) {
 	}
 	port := ports[selectedPort]
 
+	// Get the host for the kube cluster
 	kubeHost := sda.kubeConfig.Host
-	kubeToken := sda.kubeConfig.BearerToken
+	// The kube config object has a builtin system for getting an HTTP transport that does all the auth
+	// related things the cluster wants
+	httpTransport, err := rest.TransportFor(sda.kubeConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	return func(isHttps, secure bool) ServiceClient {
 		serviceName := service.Name
 		if isHttps {
 			serviceName = fmt.Sprintf("https:%s", service.Name)
 		}
+		/**
+		Documentation here: https://kubernetes.io/docs/tasks/administer-cluster/access-cluster-services/
+
+		The structure is
+		http://kubernetes_master_address/api/v1/namespaces/namespace_name/services/[https:]service_name[:port_name]/proxy
+		 */
 		proxyURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:%s/proxy", kubeHost, service.Namespace, serviceName, port.Name)
 
-		result := newHttpWrapperServiceClient(true /*kube-proxy always reacher via HTTPS */, secure, proxyURL)
-		result.headers = map[string]string {
-			"Authorization": fmt.Sprintf("Bearer %s", kubeToken),
-		}
-		return result
+		return newHttpWrapperServiceClientWithTransport(httpTransport, proxyURL)
 	}, nil
 }
 
-const serviceClientTimeout = 10 * time.Second
 func (sda *serviceDiscoveryAgent) discoverDNS() (clientFactory, error) {
 	// FUTURE - try and find a 3rd party API that allows timeouts to be put on this request
 	_, addrs, err := net.LookupSRV(sda.portName, "TCP", fmt.Sprintf("%s.%s.svc.cluster.local", sda.serviceName, sda.namespace))

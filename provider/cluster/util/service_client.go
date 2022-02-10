@@ -16,10 +16,6 @@ func (hwsc *httpWrapperServiceClient) CreateRequest(ctx context.Context, method,
 		return nil, err
 	}
 
-	for k, v := range hwsc.headers {
-		req.Header.Set(k ,v)
-	}
-
 	return req, nil
 }
 
@@ -28,9 +24,7 @@ func (hwsc *httpWrapperServiceClient) DoRequest(req *http.Request) (*http.Respon
 }
 
 func newHttpWrapperServiceClient(isHttps, secure bool, baseURL string) *httpWrapperServiceClient {
-	netDialer := &net.Dialer{
-		Timeout:       serviceClientTimeout,
-	}
+	netDialer := &net.Dialer{}
 
 	// By default, block both things
 	netDial := func(_ context.Context, network, addr string) (net.Conn, error) {
@@ -53,22 +47,20 @@ func newHttpWrapperServiceClient(isHttps, secure bool, baseURL string) *httpWrap
 		netDial = netDialer.DialContext
 	}
 
-	httpClient := http.Client{
-		Transport: &http.Transport{
+	transport := &http.Transport{
 			DialContext: netDial,
 			DialTLSContext:         dialTLS,
-			TLSHandshakeTimeout:    serviceClientTimeout,
 			MaxIdleConns:           2,
 			MaxConnsPerHost:        2,
-			ResponseHeaderTimeout:  serviceClientTimeout,
-			ExpectContinueTimeout:  serviceClientTimeout,
-		},
-		Timeout:      serviceClientTimeout * 2,
-	}
+		}
+	return newHttpWrapperServiceClientWithTransport(transport, baseURL)
+}
 
+func newHttpWrapperServiceClientWithTransport(transport http.RoundTripper, baseURL string) *httpWrapperServiceClient{
 	return &httpWrapperServiceClient{
 		url: baseURL,
-		httpClient: &httpClient,
+		httpClient: &http.Client{
+			Transport: transport,
+		},
 	}
-
 }

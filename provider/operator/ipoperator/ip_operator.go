@@ -199,7 +199,10 @@ loop:
 	return exitError
 }
 
-func (op *ipOperator) updateCounts(ctx context.Context) error {
+func (op *ipOperator) updateCounts(parentCtx context.Context) error {
+	// This is tried in a loop, don't wait for a long period of time for a response
+	ctx, cancel := context.WithTimeout(parentCtx, time.Minute)
+	defer cancel()
 	inUse, available, err := op.mllbc.GetIPAddressUsage(ctx)
 	if err != nil {
 		return err
@@ -251,8 +254,15 @@ func (op *ipOperator) applyEvent(ctx context.Context, ev v1beta2.IPResourceEvent
 	}
 }
 
-func (op *ipOperator) applyDeleteEvent(ctx context.Context, ev v1beta2.IPResourceEvent) error {
+func (op *ipOperator) applyDeleteEvent(parentCtx context.Context, ev v1beta2.IPResourceEvent) error {
 	directive := buildIPDirective(ev)
+
+	// Delete events are a one-shot type thing. The oeprator always queries for existing CRDs but can't
+	// query for the non-existence of something. The timeout used here is considerably higher as a result
+	// In the future the operator can be improved by adding an optional purge routing which seeks out kube resources
+	// for services that allocate an IP but that do not belong to at least 1 CRD
+	ctx, cancel := context.WithTimeout(parentCtx, time.Minute * 5)
+	defer cancel()
 	err := op.mllbc.PurgeIPPassthrough(ctx, ev.GetLeaseID(), directive)
 
 	if err == nil {
@@ -419,7 +429,11 @@ func handleHTTPError(op *ipOperator, rw http.ResponseWriter, req *http.Request, 
 	}
 }
 
-func (op *ipOperator) getProviderWalletAddress(ctx context.Context) (string, error) {
+func (op *ipOperator) getProviderWalletAddress(parentCtx context.Context) (string, error) {
+	// This is tried in a loop, so never wait fo a long period of time for it to complete
+	ctx, cancel := context.WithTimeout(parentCtx, time.Minute)
+	defer cancel()
+
 	// Resolve the hostname & port
 	providerClient, err := op.providerSda.GetClient(ctx, true, false)
 
