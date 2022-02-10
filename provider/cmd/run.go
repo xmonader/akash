@@ -445,7 +445,6 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	overcommitPercentStorage := 1.0 + float64(viper.GetUint64(FlagOvercommitPercentStorage)/100.0)
 	overcommitPercentCPU := 1.0 + float64(viper.GetUint64(FlagOvercommitPercentCPU)/100.0)
 	overcommitPercentMemory := 1.0 + float64(viper.GetUint64(FlagOvercommitPercentMemory)/100.0)
-	pricing, err := createBidPricingStrategy(strategy)
 	blockedHostnames := viper.GetStringSlice(FlagDeploymentBlockedHostnames)
 	kubeConfigPath := viper.GetString(FlagKubeConfig)
 	deploymentRuntimeClass := viper.GetString(FlagDeploymentRuntimeClass)
@@ -456,6 +455,11 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	cachedResultMaxAge := viper.GetDuration(FlagCachedResultMaxAge)
 	rpcQueryTimeout := viper.GetDuration(FlagRPCQueryTimeout)
 	enableIPOperator := viper.GetBool(FlagEnableIPOperator)
+
+	pricing, err := createBidPricingStrategy(strategy)
+	if err != nil {
+		return err
+	}
 
 	logger := openLogger().With("cmp", "provider")
 	kubeConfig, err := clientcommon.OpenKubeConfig(kubeConfigPath, logger)
@@ -526,7 +530,6 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-
 
 	broadcasterInstance, err := broadcaster.NewSerialClient(logger, cctx, txFactory, info)
 	if err != nil {
@@ -639,7 +642,6 @@ func doRunCmd(ctx context.Context, cmd *cobra.Command, _ []string) error {
 	config.BidDeposit = bidDeposit
 	config.RPCQueryTimeout = rpcQueryTimeout
 	config.CachedResultMaxAge = cachedResultMaxAge
-
 
 	// This value can be nil, the operator is not mandatory
 	var ipOperatorClient operatorclients.IPOperatorClient

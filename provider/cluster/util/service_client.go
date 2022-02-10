@@ -1,12 +1,12 @@
 package util
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
-	"context"
-	"io"
 )
 
 func (hwsc *httpWrapperServiceClient) CreateRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
@@ -23,19 +23,19 @@ func (hwsc *httpWrapperServiceClient) DoRequest(req *http.Request) (*http.Respon
 	return hwsc.httpClient.Do(req)
 }
 
-func newHttpWrapperServiceClient(isHttps, secure bool, baseURL string) *httpWrapperServiceClient {
+func newHTTPWrapperServiceClient(isHTTPS, secure bool, baseURL string) *httpWrapperServiceClient {
 	netDialer := &net.Dialer{}
 
 	// By default, block both things
 	netDial := func(_ context.Context, network, addr string) (net.Conn, error) {
 		return nil, fmt.Errorf("%w: cannot connect to %v:%v TLS must be used", errServiceClient, network, addr)
 	}
-	dialTLS := func(_ context.Context, network string, addr string) (net.Conn, error){
+	dialTLS := func(_ context.Context, network string, addr string) (net.Conn, error) {
 		return nil, fmt.Errorf("%w: cannot connect to %v:%v TLS is not supported", errServiceClient, network, addr)
 	}
 
 	// Unblock one of the dial methods
-	if isHttps {
+	if isHTTPS {
 		tlsDialer := tls.Dialer{
 			NetDialer: netDialer,
 			Config: &tls.Config{
@@ -48,15 +48,15 @@ func newHttpWrapperServiceClient(isHttps, secure bool, baseURL string) *httpWrap
 	}
 
 	transport := &http.Transport{
-			DialContext: netDial,
-			DialTLSContext:         dialTLS,
-			MaxIdleConns:           2,
-			MaxConnsPerHost:        2,
-		}
-	return newHttpWrapperServiceClientWithTransport(transport, baseURL)
+		DialContext:     netDial,
+		DialTLSContext:  dialTLS,
+		MaxIdleConns:    2,
+		MaxConnsPerHost: 2,
+	}
+	return newHTTPWrapperServiceClientWithTransport(transport, baseURL)
 }
 
-func newHttpWrapperServiceClientWithTransport(transport http.RoundTripper, baseURL string) *httpWrapperServiceClient{
+func newHTTPWrapperServiceClientWithTransport(transport http.RoundTripper, baseURL string) *httpWrapperServiceClient {
 	return &httpWrapperServiceClient{
 		url: baseURL,
 		httpClient: &http.Client{

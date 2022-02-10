@@ -55,7 +55,7 @@ func (ipOperatorNullClient) GetIPAddressStatus(context.Context, mtypes.OrderID) 
 }
 
 func NewIPOperatorClient(logger log.Logger, kubeConfig *rest.Config, endpoint *net.SRV) (IPOperatorClient, error) {
-	sda, err := clusterutil.NewServiceDiscoveryAgent(logger, kubeConfig, "api", "akash-ip-operator", "akash-services",  endpoint)
+	sda, err := clusterutil.NewServiceDiscoveryAgent(logger, kubeConfig, "api", "akash-ip-operator", "akash-services", endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -80,9 +80,9 @@ const (
 
 /* A client to talk to the Akash implementation of the IP Operator via HTTP */
 type ipOperatorClient struct {
-	sda        clusterutil.ServiceDiscoveryAgent
+	sda    clusterutil.ServiceDiscoveryAgent
 	client clusterutil.ServiceClient
-	log        log.Logger
+	log    log.Logger
 }
 
 var errNotAlive = errors.New("ip operator is not yet alive")

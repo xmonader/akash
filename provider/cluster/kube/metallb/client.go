@@ -12,6 +12,7 @@ import (
 	ctypes "github.com/ovrclk/akash/provider/cluster/types/v1beta2"
 	clusterutil "github.com/ovrclk/akash/provider/cluster/util"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
+	"github.com/prometheus/common/expfmt"
 	"github.com/tendermint/tendermint/libs/log"
 	"io"
 	corev1 "k8s.io/api/core/v1"
@@ -26,9 +27,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"time"
-
-	"github.com/prometheus/common/expfmt"
 
 	kubeclienterrors "github.com/ovrclk/akash/provider/cluster/kube/errors"
 )
@@ -55,11 +53,11 @@ type Client interface {
 }
 
 type client struct {
-	kube       kubernetes.Interface
+	kube kubernetes.Interface
 
 	log log.Logger
 
-	sda clusterutil.ServiceDiscoveryAgent
+	sda    clusterutil.ServiceDiscoveryAgent
 	client clusterutil.ServiceClient
 }
 
@@ -68,8 +66,7 @@ func (c *client) String() string {
 }
 
 const (
-	metricsPath    = "/metrics"
-	metricsTimeout = 10 * time.Second
+	metricsPath = "/metrics"
 
 	poolName = "default"
 
@@ -129,7 +126,7 @@ func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint, error) {
 		}
 	}
 
-	request, err := c.client.CreateRequest(ctx, http.MethodGet, metricsPath, nil )
+	request, err := c.client.CreateRequest(ctx, http.MethodGet, metricsPath, nil)
 	if err != nil {
 		return math.MaxUint32, math.MaxUint32, err
 	}
@@ -141,7 +138,7 @@ func (c *client) GetIPAddressUsage(ctx context.Context) (uint, uint, error) {
 
 	if response.StatusCode != http.StatusOK {
 		buf := &bytes.Buffer{}
-		_ , _ = io.Copy(buf, response.Body)
+		_, _ = io.Copy(buf, response.Body)
 		c.log.Error("checking metal lb metrics returned", "status", response.StatusCode, "body", buf.String())
 		return math.MaxUint32, math.MaxUint32, fmt.Errorf("%w: response status %d", errMetalLB, response.StatusCode)
 	}

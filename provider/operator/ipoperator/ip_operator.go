@@ -261,7 +261,7 @@ func (op *ipOperator) applyDeleteEvent(parentCtx context.Context, ev v1beta2.IPR
 	// query for the non-existence of something. The timeout used here is considerably higher as a result
 	// In the future the operator can be improved by adding an optional purge routing which seeks out kube resources
 	// for services that allocate an IP but that do not belong to at least 1 CRD
-	ctx, cancel := context.WithTimeout(parentCtx, time.Minute * 5)
+	ctx, cancel := context.WithTimeout(parentCtx, time.Minute*5)
 	defer cancel()
 	err := op.mllbc.PurgeIPPassthrough(ctx, ev.GetLeaseID(), directive)
 
@@ -650,7 +650,7 @@ func doIPOperator(cmd *cobra.Command) error {
 		return err
 	}
 
-	providerSda , err:= clusterutil.NewServiceDiscoveryAgent(logger, kubeConfig, "gateway", "akash-provider", "akash-services", providerEndpoint)
+	providerSda, err := clusterutil.NewServiceDiscoveryAgent(logger, kubeConfig, "gateway", "akash-provider", "akash-services", providerEndpoint)
 	if err != nil {
 		return err
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	kubeSecretPath = "/var/run/secrets/kubernetes.io"
+	kubeSecretPath = "/var/run/secrets/kubernetes.io" // nolint:gosec
 )
 
 var insideKubernetes bool

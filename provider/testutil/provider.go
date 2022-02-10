@@ -173,7 +173,7 @@ func RunLocalHostnameOperator(ctx context.Context, clientCtx cosmosclient.Contex
 	return testutilcli.ExecTestCLICmd(ctx, clientCtx, cmd, args...)
 }
 
-func RunLocalIPOerator(ctx context.Context, clientCtx cosmosclient.Context, listenAddress string, providerEndpoint string) ( sdktest.BufferWriter, error) {
+func RunLocalIPOerator(ctx context.Context, clientCtx cosmosclient.Context, listenAddress string, providerEndpoint string) (sdktest.BufferWriter, error) {
 	takeCmdLock()
 	cmd := ipoperator.Cmd()
 	releaseCmdLock()

@@ -18,11 +18,10 @@ import (
 )
 
 var (
-	ErrShuttingDown = errors.New("shutting down")
+	ErrShuttingDown     = errors.New("shutting down")
 	errServiceDiscovery = errors.New("service discovery failure")
-	errServiceClient = errors.New("service client failure")
+	errServiceClient    = errors.New("service client failure")
 )
-
 
 func NewServiceDiscoveryAgent(logger log.Logger, kubeConfig *rest.Config, portName, serviceName, namespace string, endpoint *net.SRV) (ServiceDiscoveryAgent, error) {
 	// short circuit if a value is passed in, this is a convenience function for using manually specified values
@@ -53,7 +52,6 @@ func NewServiceDiscoveryAgent(logger log.Logger, kubeConfig *rest.Config, portNa
 	return sda, nil
 }
 
-
 func (sda *serviceDiscoveryAgent) Stop() {
 	sda.lc.Shutdown(nil)
 }
@@ -64,7 +62,6 @@ func (sda *serviceDiscoveryAgent) DiscoverNow() {
 	default:
 	}
 }
-
 
 func (sda *serviceDiscoveryAgent) run() {
 	defer sda.lc.ShutdownCompleted()
@@ -136,7 +133,7 @@ func (sda *serviceDiscoveryAgent) setResult(factory clientFactory, err error) {
 	}
 }
 
-func (sda *serviceDiscoveryAgent) GetClient(ctx context.Context, isHttps, secure bool) (ServiceClient, error) {
+func (sda *serviceDiscoveryAgent) GetClient(ctx context.Context, isHTTPS, secure bool) (ServiceClient, error) {
 	errCh := make(chan error, 1)
 	resultCh := make(chan clientFactory, 1)
 	req := serviceDiscoveryRequest{
@@ -154,7 +151,7 @@ func (sda *serviceDiscoveryAgent) GetClient(ctx context.Context, isHttps, secure
 
 	select {
 	case result := <-resultCh:
-		return result(isHttps, secure), nil
+		return result(isHTTPS, secure), nil
 	case err := <-errCh:
 		return nil, err
 	case <-ctx.Done():
@@ -175,10 +172,9 @@ func (sda *serviceDiscoveryAgent) discover() (clientFactory, error) {
 	return sda.discoverKube()
 }
 
-
 func (sda *serviceDiscoveryAgent) discoverKube() (clientFactory, error) {
 	// This code is retried forever, but don't wait on a result for a very long time. Just poll
-	ctx, cancel := context.WithTimeout(context.Background(), 15 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	// Ask Kubernetes to confirm that the requested resource exists
@@ -213,9 +209,9 @@ func (sda *serviceDiscoveryAgent) discoverKube() (clientFactory, error) {
 		return nil, err
 	}
 
-	return func(isHttps, secure bool) ServiceClient {
+	return func(isHTTPS, _ bool) ServiceClient {
 		serviceName := service.Name
-		if isHttps {
+		if isHTTPS {
 			serviceName = fmt.Sprintf("https:%s", service.Name)
 		}
 		/**
@@ -223,10 +219,10 @@ func (sda *serviceDiscoveryAgent) discoverKube() (clientFactory, error) {
 
 		The structure is
 		http://kubernetes_master_address/api/v1/namespaces/namespace_name/services/[https:]service_name[:port_name]/proxy
-		 */
+		*/
 		proxyURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:%s/proxy", kubeHost, service.Namespace, serviceName, port.Name)
 
-		return newHttpWrapperServiceClientWithTransport(httpTransport, proxyURL)
+		return newHTTPWrapperServiceClientWithTransport(httpTransport, proxyURL)
 	}, nil
 }
 
@@ -244,18 +240,17 @@ func (sda *serviceDiscoveryAgent) discoverDNS() (clientFactory, error) {
 		result[i] = *addr
 	}
 	sda.log.Info("dns discovery success", "addrs", result, "portName", sda.portName, "service-name", sda.serviceName, "namespace", sda.namespace)
-	// Ignore priority & weight, just make a random selection. This generally has a length
-	// of 1
+	// Ignore priority & weight, just make a random selection. This generally has a length of 1
 	// nolint:gosec
 	addrI := rand.Int31n(int32(len(addrs)))
 	choice := result[addrI]
-	return func(isHttps, secure bool) ServiceClient {
+	return func(isHTTPS, secure bool) ServiceClient {
 		proto := "http"
-		if isHttps {
+		if isHTTPS {
 			proto = "https"
 		}
 		discoveredURL := fmt.Sprintf("%s://%v:%v", proto, choice.Target, choice.Port)
 
-		return newHttpWrapperServiceClient(isHttps, secure, discoveredURL)
+		return newHTTPWrapperServiceClient(isHTTPS, secure, discoveredURL)
 	}, nil
 }

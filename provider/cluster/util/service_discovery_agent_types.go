@@ -1,31 +1,31 @@
 package util
 
 import (
+	"context"
 	"github.com/boz/go-lifecycle"
 	"github.com/tendermint/tendermint/libs/log"
+	"io"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"net/http"
-	"context"
-	"io"
 )
 
 type ServiceDiscoveryAgent interface {
 	Stop()
-	GetClient(ctx context.Context, isHttps, secure bool) (ServiceClient, error)
+	GetClient(ctx context.Context, isHTTPS, secure bool) (ServiceClient, error)
 	DiscoverNow()
 }
 
 type ServiceClient interface {
 	CreateRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error)
-	DoRequest( req *http.Request) (*http.Response, error)
+	DoRequest(req *http.Request) (*http.Response, error)
 }
 
 type serviceDiscoveryAgent struct {
-	serviceName  string
-	namespace    string
-	portName     string
-	lc           lifecycle.Lifecycle
+	serviceName string
+	namespace   string
+	portName    string
+	lc          lifecycle.Lifecycle
 
 	discoverch chan struct{}
 
@@ -34,7 +34,7 @@ type serviceDiscoveryAgent struct {
 	result          clientFactory
 	log             log.Logger
 
-	kube kubernetes.Interface
+	kube       kubernetes.Interface
 	kubeConfig *rest.Config
 }
 
@@ -47,5 +47,5 @@ type clientFactory func(isHttps, secure bool) ServiceClient
 
 type httpWrapperServiceClient struct {
 	httpClient *http.Client
-	url string
+	url        string
 }

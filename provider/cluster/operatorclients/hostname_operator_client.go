@@ -23,9 +23,9 @@ type HostnameOperatorClient interface {
 }
 
 type hostnameOperatorClient struct {
-	sda        clusterutil.ServiceDiscoveryAgent
+	sda    clusterutil.ServiceDiscoveryAgent
 	client clusterutil.ServiceClient
-	log        log.Logger
+	log    log.Logger
 }
 
 func NewHostnameOperatorClient(logger log.Logger, kubeConfig *rest.Config, endpoint *net.SRV) (HostnameOperatorClient, error) {
@@ -33,7 +33,6 @@ func NewHostnameOperatorClient(logger log.Logger, kubeConfig *rest.Config, endpo
 	if err != nil {
 		return nil, err
 	}
-
 
 	return &hostnameOperatorClient{
 		log: logger.With("operator", "hostname"),

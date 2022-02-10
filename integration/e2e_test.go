@@ -110,7 +110,6 @@ type E2EJWTServer struct {
 	IntegrationTestSuite
 }
 
-
 func (s *IntegrationTestSuite) SetupSuite() {
 	s.appHost, s.appPort = appEnv(s.T())
 
@@ -314,13 +313,13 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	// all command use viper which is meant for use by a single goroutine only
 	// so wait for the provider to start before running the hostname operator
-	extraArgs := []string {
+	extraArgs := []string{
 		fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(20))).String()),
 		"--deployment-runtime-class=none", // do not use gvisor in test
 		fmt.Sprintf("--hostname-operator-endpoint=%s", hostnameOperatorHost),
 	}
 
-	if s.ipMarketplace{
+	if s.ipMarketplace {
 		extraArgs = append(extraArgs, fmt.Sprintf("--ip-operator-endpoint=%s", ipOperatorHost))
 		extraArgs = append(extraArgs, "--ip-operator")
 	}
@@ -332,7 +331,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 			cliHome,
 			keyName,
 			provURL.Host,
-			extraArgs...
+			extraArgs...,
 		)
 		return err
 	})
@@ -360,7 +359,6 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	s.T().Log("waiting for JWT server")
 	waitForTCPSocket(s.ctx, dialer, jwtHost, s.T())
-
 
 	// --- Start hostname operator
 	s.group.Go(func() error {
