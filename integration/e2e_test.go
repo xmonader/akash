@@ -60,6 +60,8 @@ import (
 	deploycli "github.com/ovrclk/akash/x/deployment/client/cli"
 	dtypes "github.com/ovrclk/akash/x/deployment/types/v1beta2"
 	mtypes "github.com/ovrclk/akash/x/market/types/v1beta2"
+
+	gwrest "github.com/ovrclk/akash/provider/gateway/rest"
 )
 
 // IntegrationTestSuite wraps testing components
@@ -1523,13 +1525,13 @@ func (s *E2EIPAddress) TestIPAddressLease() {
 	s.Require().NotEqual(selectedIdx, -1)
 
 	lease := leaseRes.Leases[selectedIdx].GetLease()
-	lid := lease.LeaseID
-	s.Require().Equal(s.keyProvider.GetAddress().String(), lid.Provider)
+	leaseID := lease.LeaseID
+	s.Require().Equal(s.keyProvider.GetAddress().String(), leaseID.Provider)
 
 	// Send Manifest to Provider ----------------------------------------------
 	_, err = ptestutil.TestSendManifest(
 		cctxJSON,
-		lid.BidID(),
+		leaseID.BidID(),
 		deploymentPath,
 		fmt.Sprintf("--%s=%s", flags.FlagFrom, s.keyTenant.GetAddress().String()),
 		fmt.Sprintf("--%s=%s", flags.FlagHome, s.validator.ClientCtx.HomeDir),
@@ -1537,14 +1539,42 @@ func (s *E2EIPAddress) TestIPAddressLease() {
 	s.Require().NoError(err)
 	s.Require().NoError(s.waitForBlocksCommitted(20))
 
-	cmdResult, err := providerCmd.ProviderStatusExec(s.validator.ClientCtx, lid.Provider)
-	assert.NoError(s.T(), err)
+	cmdResult, err := providerCmd.ProviderStatusExec(s.validator.ClientCtx, leaseID.Provider)
+	require.NoError(s.T(), err)
 	data := make(map[string]interface{})
 	err = json.Unmarshal(cmdResult.Bytes(), &data)
-	assert.NoError(s.T(), err)
+	require.NoError(s.T(), err)
 	leaseCount, ok := data["cluster"].(map[string]interface{})["leases"]
-	assert.True(s.T(), ok)
-	assert.Equal(s.T(), float64(1), leaseCount)
+	require.True(s.T(), ok)
+	require.Equal(s.T(), float64(1), leaseCount)
+
+	// Get the lease status and confirm IP is present
+	cmdResult, err = providerCmd.ProviderLeaseStatusExec(
+		s.validator.ClientCtx,
+		fmt.Sprintf("--%s=%v", "dseq", leaseID.DSeq),
+		fmt.Sprintf("--%s=%v", "gseq", leaseID.GSeq),
+		fmt.Sprintf("--%s=%v", "oseq", leaseID.OSeq),
+		fmt.Sprintf("--%s=%v", "provider", leaseID.Provider),
+		fmt.Sprintf("--%s=%s", flags.FlagFrom, s.keyTenant.GetAddress().String()),
+		fmt.Sprintf("--%s=%s", flags.FlagHome, s.validator.ClientCtx.HomeDir),
+	)
+	require.NoError(s.T(), err)
+	leaseStatusData := gwrest.LeaseStatus{}
+	err = json.Unmarshal(cmdResult.Bytes(), &leaseStatusData)
+	require.NoError(s.T(), err)
+
+	s.Require().Len(leaseStatusData.IPs, 1)
+
+	webService := leaseStatusData.IPs["web"]
+	s.Require().Len(webService, 1)
+	leasedIP := webService[0]
+	s.Assert().Equal(leasedIP.Port, uint32(80))
+	s.Assert().Equal(leasedIP.ExternalPort, uint32(80))
+	s.Assert().Equal(strings.ToUpper(leasedIP.Protocol), "TCP")
+	ipAddr := leasedIP.IP
+	ip := net.ParseIP(ipAddr)
+	s.Assert().NotNilf(ip, "after parsing %q got nil", ipAddr)
+
 }
 
 func TestIntegrationTestSuite(t *testing.T) {
